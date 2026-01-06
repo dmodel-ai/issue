@@ -417,7 +417,7 @@ def cmd_update(args):
 
     path = DIR / f"{id}.yaml"
     has_flags = args.status or args.owner or args.title or args.priority is not None \
-                or args.add_reviewer or args.add_label
+                or args.add_reviewer or args.add_label or args.done or args.abandon
 
     # No flags: open editor directly on yaml file
     if not has_flags:
@@ -427,12 +427,13 @@ def cmd_update(args):
         return
 
     issue = load(id)
-    if args.status:
-        if args.status in TERMINAL:
-            action = "complete" if args.status == "completed" else "abandon"
+    status = args.status or ("completed" if args.done else "abandoned" if args.abandon else None)
+    if status:
+        if status in TERMINAL:
+            action = "complete" if status == "completed" else "abandon"
             transition(issue, action)
         else:
-            issue["status"] = args.status
+            issue["status"] = status
 
     if args.owner:
         issue["owner"] = args.owner
@@ -488,9 +489,13 @@ def cmd_pick(args):
 
 # --- CLI ---
 
-CMDS = ["create", "show", "list", "update", "comment", "submit", "approve", "block", "unblock", "inbox", "outbox", "pick"]
+CMDS = ["new", "show", "list", "edit", "comment", "review", "approve", "block", "unblock", "inbox", "outbox", "pick"]
 
 def main():
+    # Bare number → edit that issue
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        sys.argv.insert(1, "edit")
+
     # Expand command prefix before argparse sees it
     if len(sys.argv) > 1 and sys.argv[1] not in CMDS and not sys.argv[1].startswith('-'):
         matches = [c for c in CMDS if c.startswith(sys.argv[1])]
@@ -502,7 +507,7 @@ def main():
     p = argparse.ArgumentParser(description="Issue tracker. Run without args for inbox/outbox summary.")
     s = p.add_subparsers(dest="cmd", metavar="command")
 
-    c = s.add_parser("create", help="create new issue")
+    c = s.add_parser("new", help="create new issue")
     c.add_argument("title", nargs="?", help="omit to open $EDITOR")
     c.add_argument("-d", "--description")
     c.add_argument("--owner", help="default: you")
@@ -512,7 +517,7 @@ def main():
     c.add_argument("-l", "--labels", nargs="+")
 
     s.add_parser("show", help="show issue details").add_argument("id")
-    s.add_parser("submit", help="submit for review (draft→review)").add_argument("id")
+    s.add_parser("review", help="request review (draft→review)").add_argument("id")
     s.add_parser("approve", help="approve issue (review→approved)").add_argument("id")
 
     c = s.add_parser("comment", help="add comment")
@@ -527,14 +532,16 @@ def main():
     c.add_argument("--blocked", action="store_true")
     c.add_argument("--blocking", action="store_true")
 
-    c = s.add_parser("update", help="update issue fields")
+    c = s.add_parser("edit", help="edit issue fields")
     c.add_argument("id", nargs="?", help="default: first inbox issue")
-    c.add_argument("--status", choices=["draft", "review", "approved", "completed", "abandoned"])
-    c.add_argument("--owner")
-    c.add_argument("--title")
+    c.add_argument("-s", "--status", choices=["draft", "review", "approved", "completed", "abandoned"])
+    c.add_argument("-o", "--owner")
+    c.add_argument("-t", "--title")
     c.add_argument("-p", "--priority", type=int)
-    c.add_argument("--add-reviewer", nargs="+")
-    c.add_argument("--add-label", nargs="+")
+    c.add_argument("-r", "--add-reviewer", nargs="+")
+    c.add_argument("-l", "--add-label", nargs="+")
+    c.add_argument("-D", "--done", action="store_true", help="mark completed")
+    c.add_argument("-X", "--abandon", action="store_true", help="mark abandoned")
 
     c = s.add_parser("block", help="mark issue as blocked by another")
     c.add_argument("id")
@@ -553,12 +560,12 @@ def main():
     args = p.parse_args()
 
     cmds = {
-        "create": cmd_create,
+        "new": cmd_create,
         "show": cmd_show,
         "list": cmd_list,
-        "update": cmd_update,
+        "edit": cmd_update,
         "comment": cmd_comment,
-        "submit": lambda a: cmd_do("submit", a),
+        "review": lambda a: cmd_do("submit", a),
         "approve": lambda a: cmd_do("approve", a),
         "block": lambda a: cmd_link(a, add=True),
         "unblock": lambda a: cmd_link(a, add=False),
