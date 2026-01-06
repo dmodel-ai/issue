@@ -8,7 +8,7 @@ States: draft → review → approved → completed/abandoned
 The attention set answers: whose turn is it?
 """
 
-import argparse, subprocess, sys
+import argparse, os, subprocess, sys, tempfile
 import uuid_utils as uuid
 import yaml
 from datetime import datetime
@@ -19,6 +19,14 @@ DIR = Path(".issues")
 def die(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
+
+def edit(initial=""):
+    editor = os.environ.get("EDITOR", "vi")
+    with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as f:
+        f.write(initial)
+        f.flush()
+        subprocess.run(f'{editor} "{f.name}"', shell=True)
+        return Path(f.name).read_text()
 
 def now():
     return datetime.utcnow().isoformat() + 'Z'
@@ -256,25 +264,107 @@ def cmd_create(args):
     ts = now()
     owner = args.owner or user()
 
+    title = args.title
+    priority = args.priority or 0
+    reviewers = args.reviewers or []
+    cc = args.cc or []
+    labels = args.labels or []
+    blocked_by = []
+    blocks = []
+    comment = None
+
+    if not title:
+        text = edit(f"""\
+Owner: {owner}
+Priority: {priority}
+Reviewers: {', '.join(reviewers)}
+CC: {', '.join(cc)}
+Labels: {', '.join(labels)}
+Blocked-by:
+Blocks:
+
+# Title on next blank line, then comment body
+# Lines starting with # are stripped
+""")
+        meta = {}
+        lines = []
+        for line in text.split('\n'):
+            if line.startswith('#'):
+                continue
+            if ':' in line and not lines and not meta.get('_done'):
+                key, val = line.split(':', 1)
+                meta[key.strip().lower().replace('-', '_')] = val.strip()
+                continue
+            meta['_done'] = True
+            lines.append(line)
+
+        def parse_list(s):
+            return [x.strip() for x in s.split(',') if x.strip()]
+
+        def parse_refs(s):
+            ids = []
+            for r in parse_list(s):
+                id = resolve(r.lstrip('#'))
+                if id:
+                    ids.append(id)
+            return ids
+
+        if meta.get('owner'):
+            owner = meta['owner']
+        if meta.get('priority'):
+            priority = int(meta['priority'])
+        if meta.get('reviewers'):
+            reviewers = parse_list(meta['reviewers'])
+        if meta.get('cc'):
+            cc = parse_list(meta['cc'])
+        if meta.get('labels'):
+            labels = parse_list(meta['labels'])
+        if meta.get('blocked_by'):
+            blocked_by = parse_refs(meta['blocked_by'])
+        if meta.get('blocks'):
+            blocks = parse_refs(meta['blocks'])
+
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        title = lines[0].strip() if lines else ""
+        if not title:
+            die("Aborted: no title")
+        body = '\n'.join(lines[1:]).strip()
+        if body:
+            comment = body
+
     issue = {
         "id": uuid.uuid7().hex,
-        "title": args.title,
+        "title": title,
         "status": "draft",
         "owner": owner,
-        "priority": args.priority or 0,
-        "reviewers": args.reviewers or [],
-        "cc": args.cc or [],
+        "priority": priority,
+        "reviewers": reviewers,
+        "cc": cc,
         "created": ts,
         "updated": ts,
-        "blocked_by": [],
-        "blocks": [],
-        "labels": args.labels or [],
+        "blocked_by": blocked_by,
+        "blocks": blocks,
+        "labels": labels,
         "description": args.description or "",
         "comments": [],
         "attention": [owner],
     }
+    if comment:
+        issue["comments"].append({"author": owner, "time": ts, "text": comment})
+    # Update reverse links
+    for bid in blocked_by:
+        blocker = load(bid)
+        if blocker and issue["id"] not in blocker.get("blocks", []):
+            blocker.setdefault("blocks", []).append(issue["id"])
+            save(blocker)
+    for bid in blocks:
+        blocked = load(bid)
+        if blocked and issue["id"] not in blocked.get("blocked_by", []):
+            blocked.setdefault("blocked_by", []).append(issue["id"])
+            save(blocked)
     save(issue)
-    print(f"Created #{num(issue['id'])}: {args.title}")
+    print(f"Created #{num(issue['id'])}: {title}")
     print(f"Attention: {owner}")
 
 def cmd_do(action, args):
@@ -286,9 +376,57 @@ def cmd_do(action, args):
     print(f"{past.get(action, action.title() + 'ed')} #{args.id}")
     print(f"Attention: {', '.join(issue['attention'])}")
 
-def cmd_update(args):
-    _, issue = fetch(args.id)
+def cmd_comment(args):
+    # Default to first inbox issue
+    if not args.id:
+        inbox = inbox_issues()
+        if not inbox:
+            die("No issues in inbox")
+        id = inbox[0]['id']
+    else:
+        id = resolve(args.id)
+        if not id:
+            die(f"Issue #{args.id} not found")
 
+    issue = load(id)
+    text = args.text
+    if not text:
+        issue_yaml = yaml.dump(issue, default_flow_style=False, sort_keys=False)
+        commented = '\n'.join(f'# {l}' for l in issue_yaml.split('\n'))
+        text = edit(f"{commented}\n\n").strip()
+        text = '\n'.join(l for l in text.split('\n') if not l.startswith('#')).strip()
+        if not text:
+            die("Aborted: no comment")
+
+    transition(issue, "comment", u=user(), text=text)
+    save(issue)
+    print(f"Commented on #{num(id)}")
+    print(f"Attention: {', '.join(issue['attention'])}")
+
+def cmd_update(args):
+    # Default to first inbox issue
+    if not args.id:
+        inbox = inbox_issues()
+        if not inbox:
+            die("No issues in inbox")
+        id = inbox[0]['id']
+    else:
+        id = resolve(args.id)
+        if not id:
+            die(f"Issue #{args.id} not found")
+
+    path = DIR / f"{id}.yaml"
+    has_flags = args.status or args.owner or args.title or args.priority is not None \
+                or args.add_reviewer or args.add_label
+
+    # No flags: open editor directly on yaml file
+    if not has_flags:
+        editor = os.environ.get("EDITOR", "vi")
+        subprocess.run(f'{editor} "{path}"', shell=True)
+        print(f"Updated #{num(id)}")
+        return
+
+    issue = load(id)
     if args.status:
         if args.status in TERMINAL:
             action = "complete" if args.status == "completed" else "abandon"
@@ -311,7 +449,7 @@ def cmd_update(args):
             issue["labels"].append(label)
 
     save(issue)
-    print(f"Updated #{args.id}")
+    print(f"Updated #{num(id)}")
 
 def cmd_link(args, add=True):
     a_id, a = fetch(args.id)
@@ -338,7 +476,7 @@ def main():
     s = p.add_subparsers(dest="cmd", metavar="command")
 
     c = s.add_parser("create", help="create new issue")
-    c.add_argument("title")
+    c.add_argument("title", nargs="?", help="omit to open $EDITOR")
     c.add_argument("-d", "--description")
     c.add_argument("--owner", help="default: you")
     c.add_argument("-p", "--priority", type=int, help="higher = more important")
@@ -351,8 +489,8 @@ def main():
     s.add_parser("approve", help="approve issue (review→approved)").add_argument("id")
 
     c = s.add_parser("comment", help="add comment")
-    c.add_argument("id")
-    c.add_argument("text")
+    c.add_argument("id", nargs="?", help="default: first inbox issue")
+    c.add_argument("text", nargs="?", help="omit to open $EDITOR")
 
     c = s.add_parser("list", help="list issues with filters")
     c.add_argument("--owner")
@@ -363,7 +501,7 @@ def main():
     c.add_argument("--blocking", action="store_true")
 
     c = s.add_parser("update", help="update issue fields")
-    c.add_argument("id")
+    c.add_argument("id", nargs="?", help="default: first inbox issue")
     c.add_argument("--status", choices=["draft", "review", "approved", "completed", "abandoned"])
     c.add_argument("--owner")
     c.add_argument("--title")
@@ -388,7 +526,7 @@ def main():
         "show": cmd_show,
         "list": cmd_list,
         "update": cmd_update,
-        "comment": lambda a: cmd_do("comment", a),
+        "comment": cmd_comment,
         "submit": lambda a: cmd_do("submit", a),
         "approve": lambda a: cmd_do("approve", a),
         "block": lambda a: cmd_link(a, add=True),
