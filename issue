@@ -16,6 +16,13 @@ from pathlib import Path
 
 DIR = Path(".issues")
 
+# ANSI colors
+C = {
+    'reset': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
+    'red': '\033[31m', 'green': '\033[32m', 'yellow': '\033[33m',
+    'blue': '\033[34m', 'magenta': '\033[35m', 'cyan': '\033[36m',
+}
+
 def die(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
@@ -216,12 +223,15 @@ def cmd_list(args):
         print("No issues found")
         return
 
+    status_colors = {'draft': 'dim', 'review': 'yellow', 'approved': 'green', 'completed': 'dim', 'abandoned': 'red'}
     for i in issues:
         marks = ""
-        if i.get('attention'): marks += " ⚠️"
-        if i['blocks']: marks += f" [→ {refs(i['blocks'])}]"
-        if i['blocked_by']: marks += f" [← {refs(i['blocked_by'])}]"
-        print(f"#{num(i['id']):<3} {i['status']:10} {i['owner']:15} {i['title']}{marks}")
+        if i.get('attention'): marks += f" {C['yellow']}⚠️{C['reset']}"
+        if i['blocks']: marks += f" {C['green']}→ {refs(i['blocks'])}{C['reset']}"
+        if i['blocked_by']: marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
+        sc = C.get(status_colors.get(i['status'], ''), '')
+        owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == user() else f"{C['cyan']}{i['owner']}{C['reset']}"
+        print(f"{C['bold']}#{num(i['id']):<3}{C['reset']} {sc}{i['status']:10}{C['reset']} {owner:24} {i['title']}{marks}")
 
 def inbox_issues():
     u = user()
@@ -241,20 +251,22 @@ def outbox_issues():
 
 def line(i, arrow_to=None):
     u = user()
-    owner = 'YOU' if i['owner'] == u else i['owner']
+    owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == u else f"{C['cyan']}{i['owner']}{C['reset']}"
     arrow = arrow_to or owner
-    pri = f"P{i['priority']}" if i.get('priority') else "-"
-    deps = f"blks:{len(i['blocks'])}" if i.get('blocks') else \
-           f"blkd:{len(i['blocked_by'])}" if i.get('blocked_by') else "-"
-    comment = f'"{i["comments"][-1]["text"][:20]}"' if i.get('comments') else '-'
-    print(f"  #{num(i['id']):<2} {pri:3} {i['status']:8} {arrow:12} [{i['title'][:25]:25}] {deps:8} {comment}")
+    pri = f"{C['magenta']}P{i['priority']}{C['reset']}" if i.get('priority') else f"{C['dim']}-{C['reset']}"
+    deps = f"{C['green']}→{refs(i['blocks'])}{C['reset']}" if i.get('blocks') else \
+           f"{C['red']}←{refs(i['blocked_by'])}{C['reset']}" if i.get('blocked_by') else f"{C['dim']}-{C['reset']}"
+    comment = f'{C["dim"]}"{i["comments"][-1]["text"][:20]}"{C["reset"]}' if i.get('comments') else f'{C["dim"]}-{C["reset"]}'
+    status_c = {'draft': 'dim', 'review': 'yellow', 'approved': 'green'}.get(i['status'], '')
+    sc = C.get(status_c, '')
+    print(f"  {C['bold']}#{num(i['id']):<2}{C['reset']} {pri:14} {sc}{i['status']:8}{C['reset']} {arrow:21} [{i['title'][:25]:25}] {deps:20} {comment}")
 
 def cmd_inbox(_):
     items = inbox_issues()
     if not items:
-        print("Inbox empty!")
+        print(f"{C['dim']}Inbox empty!{C['reset']}")
         return False
-    print(f"INBOX ({len(items)})")
+    print(f"{C['bold']}{C['green']}INBOX{C['reset']} ({len(items)})")
     for i in items:
         line(i)
     return True
@@ -262,9 +274,9 @@ def cmd_inbox(_):
 def cmd_outbox(_):
     items = outbox_issues()
     if not items:
-        print("Outbox empty!")
+        print(f"{C['dim']}Outbox empty!{C['reset']}")
         return False
-    print(f"OUTBOX ({len(items)})")
+    print(f"{C['bold']}{C['yellow']}OUTBOX{C['reset']} ({len(items)})")
     for i in items:
         line(i, ', '.join(i.get('attention', ['?']))[:12])
     return True
