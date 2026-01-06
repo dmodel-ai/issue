@@ -3,336 +3,259 @@
 # dependencies = ["pyyaml", "uuid-utils"]
 # ///
 """
-Simple issue tracking system inspired by Google Critique.
-
-Design principles:
-- Simplicity: File-based YAML storage, clear states
-- Attention set: Always know whose turn it is
-- Trust: Generic communication over rigid protocols
-- Workflow integration: Git-friendly, yq-queryable
-
+Issue tracking inspired by Google Critique.
 States: draft → review → approved → completed/abandoned
+The attention set answers: whose turn is it?
 """
 
-import argparse
-import sys
+import argparse, subprocess, sys
 import uuid_utils as uuid
 import yaml
-import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
-ISSUES_DIR = Path(".issues")
+DIR = Path(".issues")
 
-# Valid states
-STATES = ["draft", "review", "approved", "completed", "abandoned"]
-TERMINAL_STATES = {"completed", "abandoned"}
-ACTIVE_STATES = {"draft", "review", "approved"}
-
-def die(msg: str):
-    """Print error and exit."""
+def die(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
 
-def add_unique(lst: List, item) -> bool:
-    """Add item to list if not present. Returns True if added."""
-    if item not in lst:
-        lst.append(item)
-        return True
-    return False
+def now():
+    return datetime.utcnow().isoformat() + 'Z'
 
-def expand_user(name: str) -> str:
-    """Expand @me to current user."""
-    return name.replace('@me', get_current_user())
-
-def get_current_user() -> str:
-    """Get current user from git config."""
+def user():
     try:
-        result = subprocess.run(
-            ["git", "config", "user.name"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
+        return subprocess.run(["git", "config", "user.name"],
+                              capture_output=True, text=True, check=True).stdout.strip()
     except subprocess.CalledProcessError:
         return "unknown"
 
-def init_issues_dir():
-    """Initialize .issues directory if it doesn't exist."""
-    ISSUES_DIR.mkdir(exist_ok=True)
+# --- Persistence ---
 
-def generate_id() -> str:
-    """
-    Generate a UUIDv7 (RFC 9562).
+def load(id):
+    path = DIR / f"{id}.yaml"
+    return yaml.safe_load(open(path)) if path.exists() else None
 
-    UUIDv7 is time-ordered and collision-resistant, making it ideal for
-    distributed systems where issues are created on different branches.
-    """
-    return uuid.uuid7().hex
+def save(issue):
+    issue["updated"] = now()
+    yaml.dump(issue, open(DIR / f"{issue['id']}.yaml", "w"),
+              default_flow_style=False, sort_keys=False)
 
-def get_issue_path(issue_id: str) -> Path:
-    """Get path to issue file."""
-    return ISSUES_DIR / f"{issue_id}.yaml"
-
-def load_issue(issue_id: str) -> Optional[Dict]:
-    """Load issue from file."""
-    path = get_issue_path(issue_id)
-    if not path.exists():
-        return None
-    with open(path) as f:
-        return yaml.safe_load(f)
-
-def save_issue(issue: Dict):
-    """Save issue to file."""
-    path = get_issue_path(issue["id"])
-    with open(path, "w") as f:
-        yaml.dump(issue, f, default_flow_style=False, sort_keys=False)
-
-def list_all_issues() -> List[Dict]:
-    """List all issues, sorted by creation time (encoded in ID)."""
-    if not ISSUES_DIR.exists():
+def all_issues():
+    if not DIR.exists():
         return []
+    issues = [yaml.safe_load(open(p)) for p in sorted(DIR.glob("*.yaml"))]
+    return sorted([i for i in issues if i], key=lambda i: i['id'])
 
-    issues = []
-    for path in sorted(ISSUES_DIR.glob("*.yaml")):
-        with open(path) as f:
-            issue = yaml.safe_load(f)
-            if issue:
-                issues.append(issue)
-    # Sort by ID (UUIDv7 embeds timestamp, so this is chronological)
-    issues.sort(key=lambda i: i['id'])
-    return issues
-
-def get_issue_index() -> Dict[int, str]:
-    """Build mapping from issue number (1-indexed) to UUID."""
-    if not ISSUES_DIR.exists():
+def index():
+    if not DIR.exists():
         return {}
-    uuids = sorted(p.stem for p in ISSUES_DIR.glob("*.yaml"))
-    return {i + 1: uid for i, uid in enumerate(uuids)}
+    return {n+1: p.stem for n, p in enumerate(sorted(DIR.glob("*.yaml")))}
 
-def resolve_issue_id(id_arg: str) -> Optional[str]:
-    """
-    Resolve issue ID from user input.
-    Accepts: issue number (1, 2, ...) or full UUID.
-    Returns full ID or None if not found.
-    """
-    # Try as issue number first
-    if id_arg.isdigit():
-        index = get_issue_index()
-        return index.get(int(id_arg))
+def num(id):
+    return next((n for n, uid in index().items() if uid == id), 0)
 
-    # Otherwise treat as UUID
-    if len(id_arg) == 32 and all(c in '0123456789abcdef' for c in id_arg):
-        return id_arg if get_issue_path(id_arg).exists() else None
-
+def resolve(arg):
+    if arg.isdigit():
+        return index().get(int(arg))
+    if len(arg) == 32 and (DIR / f"{arg}.yaml").exists():
+        return arg
     return None
 
-def issue_num(issue_id: str) -> int:
-    """Get issue number (1-indexed position in sorted list)."""
-    index = get_issue_index()
-    for num, uid in index.items():
-        if uid == issue_id:
-            return num
-    return 0  # Not found
-
-def now_iso() -> str:
-    """Get current time in ISO format with Z suffix."""
-    return datetime.utcnow().isoformat() + 'Z'
-
-def require_issue(id_arg: str) -> tuple[str, Dict]:
-    """Resolve and load an issue, exiting with error if not found."""
-    issue_id = resolve_issue_id(id_arg)
-    issue = load_issue(issue_id) if issue_id else None
+def fetch(arg):
+    id = resolve(arg)
+    issue = load(id) if id else None
     if not issue:
-        die(f"Issue #{id_arg} not found")
-    return issue_id, issue
+        die(f"Issue #{arg} not found")
+    return id, issue
 
-def print_last_comment(issue: Dict, indent: str = "         "):
-    """Print the last comment on an issue if any."""
-    if issue['comments']:
-        last = issue['comments'][-1]
-        print(f"{indent}{last['author']}: \"{last['text']}\" ({format_timestamp(last['time'])})")
+# --- Formatting ---
 
-def print_issue_line(issue: Dict, owner_display: str = None, extra: str = ""):
-    """Print a single-line issue summary."""
-    owner = owner_display or issue['owner']
-    print(f"  #{issue_num(issue['id'])} {issue['status']:8} → {owner:15} [{issue['title']}]{extra}")
-
-def save_with_timestamp(issue: Dict):
-    """Update timestamp and save issue."""
-    issue["updated"] = now_iso()
-    save_issue(issue)
-
-def format_id_list(ids: List[str]) -> str:
-    """Format a list of issue IDs for display."""
-    return ', '.join(f'#{issue_num(i)}' for i in ids)
-
-def print_attention(issue: Dict):
-    """Print current attention set."""
-    print(f"Attention: {', '.join(issue['attention'])}")
-
-def get_inbox_issues(issues: List[Dict], user: str) -> List[Dict]:
-    """Filter to issues needing user's attention (excluding terminal states)."""
-    return [i for i in issues
-            if user in i.get('attention', [])
-            and i['status'] not in TERMINAL_STATES]
-
-def get_outbox_issues(issues: List[Dict], user: str) -> List[Dict]:
-    """Filter to user's issues waiting on others."""
-    return [i for i in issues
-            if i['owner'] == user
-            and user not in i.get('attention', [])]
-
-def categorize_inbox(issues: List[Dict], user: str) -> tuple[List[Dict], List[Dict], List[Dict]]:
-    """Categorize inbox issues into blocking, needs_review, needs_work (mutually exclusive)."""
-    seen = set()
-    blocking_others, needs_review, needs_work = [], [], []
-
-    for issue in issues:
-        if issue['id'] in seen:
-            continue
-        seen.add(issue['id'])
-
-        if issue.get('blocks'):
-            blocking_others.append(issue)
-        elif user in issue.get('reviewers', []) and issue['owner'] != user:
-            needs_review.append(issue)
-        elif issue['owner'] == user:
-            needs_work.append(issue)
-
-    return blocking_others, needs_review, needs_work
-
-def format_timestamp(ts: str) -> str:
-    """Format timestamp for display."""
+def ago(ts):
     dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-    now = datetime.now(dt.tzinfo)
-    diff = now - dt
-
+    diff = datetime.now(dt.tzinfo) - dt
     if diff.days > 0:
         return f"{diff.days}d ago"
-    elif diff.seconds > 3600:
+    if diff.seconds > 3600:
         return f"{diff.seconds // 3600}h ago"
-    elif diff.seconds > 60:
+    if diff.seconds > 60:
         return f"{diff.seconds // 60}m ago"
-    else:
-        return "just now"
+    return "just now"
 
-# --- State Machine: Transitions defined as data ---
+def refs(ids):
+    return ', '.join(f'#{num(i)}' for i in ids)
 
-def set_attention_to_reviewers(issue: Dict, **_):
-    """Submit action: attention goes to reviewers (or owner if none)."""
+# --- State Machine ---
+
+def pending(issue):
+    return [r for r in issue.get("reviewers", [])
+            if r not in issue.get("approved_by", [])]
+
+def on_submit(issue, **_):
     issue["attention"] = issue["reviewers"].copy() if issue["reviewers"] else [issue["owner"]]
 
-def shift_attention_on_comment(issue: Dict, user: str, **_):
-    """Comment action: owner → reviewers, reviewer → owner (Critique semantics)."""
-    if user == issue["owner"]:
-        remaining = [r for r in issue.get("reviewers", []) if r not in issue.get("approved_by", [])]
-        issue["attention"] = remaining if remaining else [issue["owner"]]
+def on_comment(issue, u, text, **_):
+    issue["comments"].append({"author": u, "time": now(), "text": text})
+    if u == issue["owner"]:
+        issue["attention"] = pending(issue) or [issue["owner"]]
     else:
         issue["attention"] = [issue["owner"]]
 
-def record_approval(issue: Dict, user: str, **_):
-    """Approve action: record approval, update attention to remaining reviewers."""
-    issue.setdefault("approved_by", [])
-    if user not in issue["approved_by"]:
-        issue["approved_by"].append(user)
-    remaining = [r for r in issue["reviewers"] if r not in issue["approved_by"]]
-    issue["attention"] = remaining if remaining else [issue["owner"]]
+def on_approve(issue, u, **_):
+    if u not in issue.get("reviewers", []):
+        die("Not a reviewer")
+    if u not in issue.get("approved_by", []):
+        issue.setdefault("approved_by", []).append(u)
+    issue["attention"] = pending(issue) or [issue["owner"]]
 
-def all_reviewers_approved(issue: Dict, **_) -> bool:
-    """Guard: true if all reviewers have approved."""
+def all_approved(issue, **_):
     return set(issue.get("reviewers", [])) == set(issue.get("approved_by", []))
 
-def clear_attention(issue: Dict, **_):
-    """Terminal state action: clear attention set."""
+def clear_attention(issue, **_):
     issue["attention"] = []
 
-def require_reviewer(issue: Dict, user: str, **_):
-    """Validate: die if user is not a reviewer."""
-    if user not in issue.get("reviewers", []):
-        die(f"You are not a reviewer for this issue")
+def on_block(a, b):
+    if b["id"] not in a.setdefault("blocked_by", []):
+        a["blocked_by"].append(b["id"])
+    if a["id"] not in b.setdefault("blocks", []):
+        b["blocks"].append(a["id"])
 
-def add_comment_text(issue: Dict, user: str, text: str, **_):
-    """Pre-hook: add comment to issue."""
-    issue["comments"].append({"author": user, "time": now_iso(), "text": text})
+def on_unblock(a, b):
+    if b["id"] in a.get("blocked_by", []):
+        a["blocked_by"].remove(b["id"])
+    if a["id"] in b.get("blocks", []):
+        b["blocks"].remove(a["id"])
 
+TERMINAL = {"completed", "abandoned"}
+ACTIVE = {"draft", "review", "approved"}
 TRANSITIONS = {
-    "submit": {
-        "from": {"draft"},
-        "to": "review",
-        "action": set_attention_to_reviewers,
-    },
-    "comment": {
-        "from": ACTIVE_STATES,
-        "to": None,
-        "pre": add_comment_text,
-        "action": shift_attention_on_comment,
-    },
-    "approve": {
-        "from": {"review"},
-        "to": "approved",
-        "validate": require_reviewer,
-        "action": record_approval,
-        "guard": all_reviewers_approved,
-    },
-    "complete": {
-        "from": ACTIVE_STATES,
-        "to": "completed",
-        "action": clear_attention,
-    },
-    "abandon": {
-        "from": ACTIVE_STATES,
-        "to": "abandoned",
-        "action": clear_attention,
-    },
+    "submit":   ({"draft"},  "review",    on_submit),
+    "comment":  (ACTIVE,     None,        on_comment),
+    "approve":  ({"review"}, "approved",  on_approve, all_approved),
+    "complete": (ACTIVE,     "completed", clear_attention),
+    "abandon":  (ACTIVE,     "abandoned", clear_attention),
 }
 
-def do_transition(issue: Dict, name: str, **ctx):
-    """Apply a named transition. Dies if invalid from-state or validation fails."""
+def transition(issue, name, **ctx):
     t = TRANSITIONS.get(name)
     if not t:
         die(f"Unknown transition: {name}")
-    if issue["status"] not in t["from"]:
+
+    frm, to, action = t[:3]
+    guard = t[3] if len(t) > 3 else lambda **_: True
+
+    if issue["status"] not in frm:
         die(f"Cannot {name} from '{issue['status']}'")
-    if validate := t.get("validate"):
-        validate(issue, **ctx)
-    if pre := t.get("pre"):
-        pre(issue, **ctx)
-    if action := t.get("action"):
-        action(issue, **ctx)
-    if t.get("to"):
-        guard = t.get("guard", lambda issue, **ctx: True)
-        if guard(issue, **ctx):
-            issue["status"] = t["to"]
 
-def cmd_do(action: str, args):
-    """Generic handler for transition-based commands."""
-    _, issue = require_issue(args.id)
-    ctx = {"user": get_current_user()}
-    if hasattr(args, "text"):
-        ctx["text"] = args.text
-    do_transition(issue, action, **ctx)
-    save_with_timestamp(issue)
-    print(f"{action.title()}ed issue #{args.id}")
-    print_attention(issue)
+    action(issue, **ctx)
+    if to and guard(issue=issue, **ctx):
+        issue["status"] = to
 
-# --- End State Machine ---
+# --- Views ---
+
+def cmd_show(args):
+    _, i = fetch(args.id)
+    print(f"#{num(i['id'])} {i['title']}")
+    print(f"status: {i['status']}  owner: {i['owner']}")
+    for k in ['reviewers', 'approved_by', 'attention', 'blocked_by', 'blocks', 'labels']:
+        if v := i.get(k):
+            print(f"{k}: {refs(v) if k in ('blocked_by', 'blocks') else ', '.join(v)}")
+    print(f"created: {i['created']}  updated: {i['updated']}")
+    if i['description']:
+        print("\n" + i['description'])
+    if i['comments']:
+        print("\ncomments:")
+        for c in i['comments']:
+            print(f"  {c['author']} ({ago(c['time'])}): {c['text']}")
+
+def cmd_list(args):
+    issues = all_issues()
+
+    filters = [
+        (args.owner,    lambda i, v: i['owner'] == v.replace('@me', user())),
+        (args.status,   lambda i, v: i['status'] in v.split(',')),
+        (args.reviewer, lambda i, v: v.replace('@me', user()) in i.get('reviewers', [])),
+        (args.label,    lambda i, v: v in i.get('labels', [])),
+        (args.blocked,  lambda i, _: i.get('blocked_by')),
+        (args.blocking, lambda i, _: i.get('blocks')),
+    ]
+    for val, pred in filters:
+        if val:
+            issues = [i for i in issues if pred(i, val)]
+
+    if not issues:
+        print("No issues found")
+        return
+
+    for i in issues:
+        marks = ""
+        if i.get('attention'): marks += " ⚠️"
+        if i['blocks']: marks += f" [blocks: {len(i['blocks'])}]"
+        if i['blocked_by']: marks += f" [blocked: {len(i['blocked_by'])}]"
+        print(f"#{num(i['id']):<3} {i['status']:10} {i['owner']:15} {i['title']}{marks}")
+
+def inbox_issues():
+    u = user()
+    items = [i for i in all_issues()
+             if u in i.get('attention', []) and i['status'] not in TERMINAL]
+    # Sort: blocking first, then by id
+    return sorted(items, key=lambda i: (not i.get('blocks'), i['id']))
+
+def outbox_issues():
+    u = user()
+    return [i for i in all_issues()
+            if i['owner'] == u and u not in i.get('attention', [])
+            and i['status'] not in TERMINAL]
+
+def line(i, arrow_to=None):
+    u = user()
+    owner = 'YOU' if i['owner'] == u else i['owner']
+    arrow = arrow_to or owner
+    deps = f"blks:{len(i['blocks'])}" if i.get('blocks') else \
+           f"blkd:{len(i['blocked_by'])}" if i.get('blocked_by') else "-"
+    comment = f'"{i["comments"][-1]["text"][:20]}"' if i.get('comments') else '-'
+    print(f"  #{num(i['id']):<2} {i['status']:8} {arrow:12} [{i['title'][:25]:25}] {deps:8} {comment}")
+
+def cmd_inbox(_):
+    items = inbox_issues()
+    if not items:
+        print("Inbox empty!")
+        return False
+    print(f"INBOX ({len(items)})")
+    for i in items:
+        line(i)
+    return True
+
+def cmd_outbox(_):
+    items = outbox_issues()
+    if not items:
+        print("Outbox empty!")
+        return False
+    print(f"OUTBOX ({len(items)})")
+    for i in items:
+        line(i, ', '.join(i.get('attention', ['?']))[:12])
+    return True
+
+def cmd_default(_):
+    has = cmd_inbox(None)
+    if has: print()
+    has2 = cmd_outbox(None)
+    if has2: print()
+    if not has and not has2:
+        print("No active issues.")
+
+# --- Mutations ---
 
 def cmd_create(args):
-    """Create a new issue."""
-    init_issues_dir()
-
-    issue_id = generate_id()
-    current_user = get_current_user()
-    ts = now_iso()
+    DIR.mkdir(exist_ok=True)
+    ts = now()
+    owner = args.owner or user()
 
     issue = {
-        "id": issue_id,
+        "id": uuid.uuid7().hex,
         "title": args.title,
         "status": "draft",
-        "owner": args.owner or current_user,
+        "owner": owner,
         "reviewers": args.reviewers or [],
         "cc": args.cc or [],
         "created": ts,
@@ -342,96 +265,28 @@ def cmd_create(args):
         "labels": args.labels or [],
         "description": args.description or "",
         "comments": [],
-        "attention": [],
+        "attention": [owner],
     }
+    save(issue)
+    print(f"Created #{num(issue['id'])}: {args.title}")
+    print(f"Attention: {owner}")
 
-    issue["attention"] = [issue["owner"]]  # Initial attention on owner
-    save_issue(issue)
+def cmd_do(action, args):
+    _, issue = fetch(args.id)
+    transition(issue, action, u=user(), text=getattr(args, 'text', None))
+    save(issue)
 
-    print(f"Created issue #{issue_num(issue_id)}: {args.title}")
-    print(f"Status: {issue['status']}")
-    print_attention(issue)
-
-def cmd_show(args):
-    """Show issue details."""
-    _, issue = require_issue(args.id)
-
-    # Header
-    print(f"#{issue_num(issue['id'])} - {issue['title']}")
-    print(f"Status: {issue['status']}")
-    print(f"Owner: {issue['owner']}")
-    if issue['reviewers']:
-        print(f"Reviewers: {', '.join(issue['reviewers'])}")
-    if issue.get('approved_by'):
-        print(f"Approved by: {', '.join(issue['approved_by'])}")
-    if issue['attention']:
-        print(f"Attention: {', '.join(issue['attention'])} ⚠️")
-    if issue['blocked_by']:
-        print(f"Blocked by: {format_id_list(issue['blocked_by'])}")
-    if issue['blocks']:
-        print(f"Blocks: {format_id_list(issue['blocks'])}")
-    if issue['labels']:
-        print(f"Labels: {', '.join(issue['labels'])}")
-    print(f"Created: {issue['created']}")
-    print(f"Updated: {issue['updated']}")
-
-    # Description
-    if issue['description']:
-        print("\n" + issue['description'])
-
-    # Comments
-    if issue['comments']:
-        print("\nComments:")
-        for comment in issue['comments']:
-            time_str = format_timestamp(comment['time'])
-            print(f"  {comment['author']} ({time_str}): {comment['text']}")
-
-def cmd_list(args):
-    """List issues with optional filters."""
-    issues = list_all_issues()
-
-    if args.owner:
-        owner = expand_user(args.owner)
-        issues = [i for i in issues if i['owner'] == owner]
-    if args.status:
-        statuses = set(args.status.split(','))
-        issues = [i for i in issues if i['status'] in statuses]
-    if args.reviewer:
-        reviewer = expand_user(args.reviewer)
-        issues = [i for i in issues if reviewer in i.get('reviewers', [])]
-    if args.label:
-        issues = [i for i in issues if args.label in i.get('labels', [])]
-    if args.blocked:
-        issues = [i for i in issues if i.get('blocked_by')]
-    if args.blocking:
-        issues = [i for i in issues if i.get('blocks')]
-
-    # Display
-    if not issues:
-        print("No issues found")
-        return
-
-    for issue in issues:
-        status = issue['status'].ljust(10)
-        owner = issue['owner'].ljust(15)
-        attention_mark = " ⚠️" if issue.get('attention') else ""
-        blocks_mark = f" [blocks: {len(issue['blocks'])}]" if issue['blocks'] else ""
-        blocked_mark = f" [blocked by: {len(issue['blocked_by'])}]" if issue['blocked_by'] else ""
-
-        print(f"#{issue_num(issue['id']):<3} {status} {owner} {issue['title']}{attention_mark}{blocks_mark}{blocked_mark}")
+    past = {"submit": "Submitted", "comment": "Commented on", "approve": "Approved"}
+    print(f"{past.get(action, action.title() + 'ed')} #{args.id}")
+    print(f"Attention: {', '.join(issue['attention'])}")
 
 def cmd_update(args):
-    """Update issue fields."""
-    _, issue = require_issue(args.id)
+    _, issue = fetch(args.id)
 
     if args.status:
-        if args.status not in STATES:
-            die(f"Invalid status: {args.status}. Must be one of: {', '.join(STATES)}")
-        # Use state machine for terminal transitions
-        if args.status == "completed":
-            do_transition(issue, "complete")
-        elif args.status == "abandoned":
-            do_transition(issue, "abandon")
+        if args.status in TERMINAL:
+            action = "complete" if args.status == "completed" else "abandon"
+            transition(issue, action)
         else:
             issue["status"] = args.status
 
@@ -440,222 +295,85 @@ def cmd_update(args):
     if args.title:
         issue["title"] = args.title
 
-    for reviewer in (args.add_reviewer or []):
-        add_unique(issue.setdefault("reviewers", []), reviewer)
+    for r in (args.add_reviewer or []):
+        if r not in issue.setdefault("reviewers", []):
+            issue["reviewers"].append(r)
     for label in (args.add_label or []):
-        add_unique(issue.setdefault("labels", []), label)
+        if label not in issue.setdefault("labels", []):
+            issue["labels"].append(label)
 
-    save_with_timestamp(issue)
-    print(f"Updated issue #{args.id}")
+    save(issue)
+    print(f"Updated #{args.id}")
 
-cmd_comment = lambda args: cmd_do("comment", args)
-cmd_submit = lambda args: cmd_do("submit", args)
-cmd_approve = lambda args: cmd_do("approve", args)
+def cmd_link(args, add=True):
+    a_id, a = fetch(args.id)
+    b_id, b = fetch(args.blocker_id)
+    (on_block if add else on_unblock)(a, b)
+    save(a)
+    save(b)
+    print(f"#{num(a_id)} {'blocked by' if add else 'unblocked from'} #{num(b_id)}")
 
-def cmd_block(args):
-    """Mark issue as blocked by another issue."""
-    issue_id, issue = require_issue(args.id)
-    blocker_id, blocker = require_issue(args.blocker_id)
-
-    if blocker_id not in issue["blocked_by"]:
-        issue["blocked_by"].append(blocker_id)
-        save_with_timestamp(issue)
-
-    if issue_id not in blocker["blocks"]:
-        blocker["blocks"].append(issue_id)
-        save_with_timestamp(blocker)
-
-    print(f"Issue #{issue_num(issue_id)} is now blocked by #{issue_num(blocker_id)}")
-
-def cmd_unblock(args):
-    """Unblock issue."""
-    issue_id, issue = require_issue(args.id)
-    blocker_id, blocker = require_issue(args.blocker_id)
-
-    if blocker_id in issue["blocked_by"]:
-        issue["blocked_by"].remove(blocker_id)
-        save_with_timestamp(issue)
-
-    if issue_id in blocker["blocks"]:
-        blocker["blocks"].remove(issue_id)
-        save_with_timestamp(blocker)
-
-    print(f"Issue #{issue_num(issue_id)} is no longer blocked by #{issue_num(blocker_id)}")
-
-def print_inbox(inbox_issues: List[Dict], user: str, limit: int = None, brief: bool = False):
-    """Print inbox issues. If limit set, shows truncated view."""
-    blocking, needs_review, needs_work = categorize_inbox(inbox_issues, user)
-
-    if brief:
-        # Compact view for cmd_default
-        display = (blocking + needs_review + needs_work)[:limit] if limit else (blocking + needs_review + needs_work)
-        print(f"YOUR INBOX ({len(inbox_issues)}) - needs your action")
-        for issue in display:
-            owner_display = 'YOU' if issue['owner'] == user else issue['owner']
-            extra = f" ⚠️ blocks {len(issue['blocks'])}" if issue.get('blocks') else ""
-            print_issue_line(issue, owner_display, extra)
-        if limit and len(inbox_issues) > limit:
-            print(f"  ... and {len(inbox_issues) - limit} more (run 'issue inbox' to see all)")
-    else:
-        # Full view with categories
-        if blocking:
-            print(f"BLOCKING OTHERS ({len(blocking)})")
-            for issue in blocking:
-                print_issue_line(issue)
-                print(f"         Blocks: {format_id_list(issue['blocks'])}")
-                print_last_comment(issue)
-                print()
-        if needs_review:
-            print(f"NEEDS YOUR REVIEW ({len(needs_review)})")
-            for issue in needs_review:
-                print_issue_line(issue)
-                if approved := ', '.join(issue.get('approved_by', [])):
-                    print(f"         Approved by: {approved}")
-                print_last_comment(issue)
-                print()
-        if needs_work:
-            print(f"NEEDS YOUR WORK ({len(needs_work)})")
-            for issue in needs_work:
-                print_issue_line(issue, "YOU")
-                print_last_comment(issue)
-                print()
-
-def print_outbox(outbox_issues: List[Dict], limit: int = None, brief: bool = False):
-    """Print outbox issues. If limit set, shows truncated view."""
-    display = outbox_issues[:limit] if limit else outbox_issues
-    print(f"YOUR OUTBOX ({len(outbox_issues)}) - waiting on others")
-    for issue in display:
-        waiting_on = ', '.join(issue.get('attention', ['?']))
-        if brief:
-            extra = f" [blocked by {len(issue['blocked_by'])}]" if issue.get('blocked_by') else ""
-        else:
-            extra = f"\n         Blocked by: {format_id_list(issue['blocked_by'])}" if issue.get('blocked_by') else ""
-        print(f"  #{issue_num(issue['id'])} {issue['status']:8} → {waiting_on:15} [{issue['title']}]{extra}")
-    if limit and len(outbox_issues) > limit:
-        print(f"  ... and {len(outbox_issues) - limit} more (run 'issue outbox' to see all)")
-
-def cmd_inbox(args):
-    """Show issues needing your attention."""
-    current_user = get_current_user()
-    inbox_issues = get_inbox_issues(list_all_issues(), current_user)
-    if not inbox_issues:
-        print("Your inbox is empty! 🎉")
-        return
-    print_inbox(inbox_issues, current_user)
-
-def cmd_outbox(args):
-    """Show your issues waiting on others."""
-    current_user = get_current_user()
-    outbox_issues = get_outbox_issues(list_all_issues(), current_user)
-    if not outbox_issues:
-        print("Your outbox is empty! Nothing waiting on others.")
-        return
-    print_outbox(outbox_issues)
-
-def cmd_default(args):
-    """Default view: inbox + outbox summary."""
-    current_user = get_current_user()
-    issues = list_all_issues()
-    inbox_issues = get_inbox_issues(issues, current_user)
-    outbox_issues = get_outbox_issues(issues, current_user)
-
-    if inbox_issues:
-        print_inbox(inbox_issues, current_user, limit=5, brief=True)
-        print()
-    if outbox_issues:
-        print_outbox(outbox_issues, limit=5, brief=True)
-        print()
-
-    if not inbox_issues and not outbox_issues:
-        print("No active issues. Create one with 'issue create \"Title\"'")
-    else:
-        print("Use 'issue inbox', 'issue outbox', or 'issue list' for more details")
+# --- CLI ---
 
 def main():
-    parser = argparse.ArgumentParser(description="Simple issue tracker")
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    p = argparse.ArgumentParser(description="Issue tracker")
+    s = p.add_subparsers(dest="cmd")
 
-    # create
-    create_parser = subparsers.add_parser("create", help="Create a new issue")
-    create_parser.add_argument("title", help="Issue title")
-    create_parser.add_argument("--description", "-d", help="Issue description")
-    create_parser.add_argument("--owner", help="Issue owner (default: current user)")
-    create_parser.add_argument("--reviewers", "-r", nargs="+", help="Reviewers")
-    create_parser.add_argument("--cc", nargs="+", help="CC list")
-    create_parser.add_argument("--labels", "-l", nargs="+", help="Labels")
+    c = s.add_parser("create")
+    c.add_argument("title")
+    c.add_argument("-d", "--description")
+    c.add_argument("--owner")
+    c.add_argument("-r", "--reviewers", nargs="+")
+    c.add_argument("--cc", nargs="+")
+    c.add_argument("-l", "--labels", nargs="+")
 
-    # show
-    show_parser = subparsers.add_parser("show", help="Show issue details")
-    show_parser.add_argument("id", type=str, help="Issue ID")
+    for name in ["show", "submit", "approve"]:
+        s.add_parser(name).add_argument("id")
 
-    # list
-    list_parser = subparsers.add_parser("list", help="List issues")
-    list_parser.add_argument("--owner", help="Filter by owner")
-    list_parser.add_argument("--status", help="Filter by status (comma-separated)")
-    list_parser.add_argument("--reviewer", help="Filter by reviewer")
-    list_parser.add_argument("--label", help="Filter by label")
-    list_parser.add_argument("--blocked", action="store_true", help="Show only blocked issues")
-    list_parser.add_argument("--blocking", action="store_true", help="Show only issues blocking others")
+    c = s.add_parser("comment")
+    c.add_argument("id")
+    c.add_argument("text")
 
-    # update
-    update_parser = subparsers.add_parser("update", help="Update issue")
-    update_parser.add_argument("id", type=str, help="Issue ID")
-    update_parser.add_argument("--status", choices=STATES, help="New status")
-    update_parser.add_argument("--owner", help="New owner")
-    update_parser.add_argument("--title", help="New title")
-    update_parser.add_argument("--add-reviewer", nargs="+", help="Add reviewers")
-    update_parser.add_argument("--add-label", nargs="+", help="Add labels")
+    c = s.add_parser("list")
+    c.add_argument("--owner")
+    c.add_argument("--status")
+    c.add_argument("--reviewer")
+    c.add_argument("--label")
+    c.add_argument("--blocked", action="store_true")
+    c.add_argument("--blocking", action="store_true")
 
-    # comment
-    comment_parser = subparsers.add_parser("comment", help="Add a comment")
-    comment_parser.add_argument("id", type=str, help="Issue ID")
-    comment_parser.add_argument("text", help="Comment text")
+    c = s.add_parser("update")
+    c.add_argument("id")
+    c.add_argument("--status", choices=["draft", "review", "approved", "completed", "abandoned"])
+    c.add_argument("--owner")
+    c.add_argument("--title")
+    c.add_argument("--add-reviewer", nargs="+")
+    c.add_argument("--add-label", nargs="+")
 
-    # submit
-    submit_parser = subparsers.add_parser("submit", help="Submit for review (draft → review)")
-    submit_parser.add_argument("id", type=str, help="Issue ID")
+    for name in ["block", "unblock"]:
+        c = s.add_parser(name)
+        c.add_argument("id")
+        c.add_argument("blocker_id")
 
-    # approve
-    approve_parser = subparsers.add_parser("approve", help="Approve an issue")
-    approve_parser.add_argument("id", type=str, help="Issue ID")
+    s.add_parser("inbox")
+    s.add_parser("outbox")
 
-    # block
-    block_parser = subparsers.add_parser("block", help="Mark issue as blocked")
-    block_parser.add_argument("id", type=str, help="Issue ID")
-    block_parser.add_argument("blocker_id", type=str, help="Blocker issue ID")
+    args = p.parse_args()
 
-    # unblock
-    unblock_parser = subparsers.add_parser("unblock", help="Unblock issue")
-    unblock_parser.add_argument("id", type=str, help="Issue ID")
-    unblock_parser.add_argument("blocker_id", type=str, help="Blocker issue ID")
-
-    # inbox/outbox (no additional args)
-    subparsers.add_parser("inbox", help="Show your inbox (needs your action)")
-    subparsers.add_parser("outbox", help="Show your outbox (waiting on others)")
-
-    args = parser.parse_args()
-
-    # Default command if none specified
-    if not args.command:
-        cmd_default(args)
-        return
-
-    # Dispatch to command handlers
-    commands = {
+    cmds = {
         "create": cmd_create,
         "show": cmd_show,
         "list": cmd_list,
         "update": cmd_update,
-        "comment": cmd_comment,
-        "submit": cmd_submit,
-        "approve": cmd_approve,
-        "block": cmd_block,
-        "unblock": cmd_unblock,
+        "comment": lambda a: cmd_do("comment", a),
+        "submit": lambda a: cmd_do("submit", a),
+        "approve": lambda a: cmd_do("approve", a),
+        "block": lambda a: cmd_link(a, add=True),
+        "unblock": lambda a: cmd_link(a, add=False),
         "inbox": cmd_inbox,
         "outbox": cmd_outbox,
     }
-
-    commands[args.command](args)
+    cmds.get(args.cmd, cmd_default)(args)
 
 if __name__ == "__main__":
     main()
