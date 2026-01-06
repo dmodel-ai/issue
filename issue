@@ -187,6 +187,7 @@ def cmd_list(args):
         (args.owner,    lambda i, v: i['owner'] == v.replace('@me', user())),
         (args.status,   lambda i, v: i['status'] in v.split(',')),
         (args.reviewer, lambda i, v: v.replace('@me', user()) in i.get('reviewers', [])),
+        (args.cc,       lambda i, v: v.replace('@me', user()) in i.get('cc', [])),
         (args.label,    lambda i, v: v in i.get('labels', [])),
         (args.blocked,  lambda i, _: i.get('blocked_by')),
         (args.blocking, lambda i, _: i.get('blocks')),
@@ -529,6 +530,7 @@ def main():
     c.add_argument("--owner")
     c.add_argument("--status", help="comma-separated")
     c.add_argument("--reviewer")
+    c.add_argument("--cc")
     c.add_argument("--label")
     c.add_argument("--blocked", action="store_true")
     c.add_argument("--blocking", action="store_true")
