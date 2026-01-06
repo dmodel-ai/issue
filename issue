@@ -201,23 +201,25 @@ def inbox_issues():
     u = user()
     items = [i for i in all_issues()
              if u in i.get('attention', []) and i['status'] not in TERMINAL]
-    # Sort: blocking first, then by id
-    return sorted(items, key=lambda i: (not i.get('blocks'), i['id']))
+    # Sort: blocking first, priority desc, then by id
+    return sorted(items, key=lambda i: (not i.get('blocks'), -i.get('priority', 0), i['id']))
 
 def outbox_issues():
     u = user()
-    return [i for i in all_issues()
-            if i['owner'] == u and u not in i.get('attention', [])
-            and i['status'] not in TERMINAL]
+    items = [i for i in all_issues()
+             if i['owner'] == u and u not in i.get('attention', [])
+             and i['status'] not in TERMINAL]
+    return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
 def line(i, arrow_to=None):
     u = user()
     owner = 'YOU' if i['owner'] == u else i['owner']
     arrow = arrow_to or owner
+    pri = f"P{i['priority']}" if i.get('priority') else "-"
     deps = f"blks:{len(i['blocks'])}" if i.get('blocks') else \
            f"blkd:{len(i['blocked_by'])}" if i.get('blocked_by') else "-"
     comment = f'"{i["comments"][-1]["text"][:20]}"' if i.get('comments') else '-'
-    print(f"  #{num(i['id']):<2} {i['status']:8} {arrow:12} [{i['title'][:25]:25}] {deps:8} {comment}")
+    print(f"  #{num(i['id']):<2} {pri:3} {i['status']:8} {arrow:12} [{i['title'][:25]:25}] {deps:8} {comment}")
 
 def cmd_inbox(_):
     items = inbox_issues()
@@ -259,6 +261,7 @@ def cmd_create(args):
         "title": args.title,
         "status": "draft",
         "owner": owner,
+        "priority": args.priority or 0,
         "reviewers": args.reviewers or [],
         "cc": args.cc or [],
         "created": ts,
@@ -297,6 +300,8 @@ def cmd_update(args):
         issue["owner"] = args.owner
     if args.title:
         issue["title"] = args.title
+    if args.priority is not None:
+        issue["priority"] = args.priority
 
     for r in (args.add_reviewer or []):
         if r not in issue.setdefault("reviewers", []):
@@ -326,6 +331,7 @@ def main():
     c.add_argument("title")
     c.add_argument("-d", "--description")
     c.add_argument("--owner")
+    c.add_argument("-p", "--priority", type=int)
     c.add_argument("-r", "--reviewers", nargs="+")
     c.add_argument("--cc", nargs="+")
     c.add_argument("-l", "--labels", nargs="+")
@@ -350,6 +356,7 @@ def main():
     c.add_argument("--status", choices=["draft", "review", "approved", "completed", "abandoned"])
     c.add_argument("--owner")
     c.add_argument("--title")
+    c.add_argument("-p", "--priority", type=int)
     c.add_argument("--add-reviewer", nargs="+")
     c.add_argument("--add-label", nargs="+")
 
