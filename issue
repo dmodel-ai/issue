@@ -87,6 +87,9 @@ def refs(ids):
 
 # --- State Machine ---
 
+TERMINAL = {"completed", "abandoned"}
+ACTIVE = {"draft", "review", "approved"}
+
 def pending(issue):
     return [r for r in issue.get("reviewers", [])
             if r not in issue.get("approved_by", [])]
@@ -96,6 +99,8 @@ def on_submit(issue, **_):
 
 def on_comment(issue, u, text, **_):
     issue["comments"].append({"author": u, "time": now(), "text": text})
+    if issue["status"] in TERMINAL:
+        return  # no attention shift on closed issues
     if u == issue["owner"]:
         issue["attention"] = pending(issue) or [issue["owner"]]
     else:
@@ -126,11 +131,9 @@ def on_unblock(a, b):
     if a["id"] in b.get("blocks", []):
         b["blocks"].remove(a["id"])
 
-TERMINAL = {"completed", "abandoned"}
-ACTIVE = {"draft", "review", "approved"}
 TRANSITIONS = {
     "submit":   ({"draft"},  "review",    on_submit),
-    "comment":  (ACTIVE,     None,        on_comment),
+    "comment":  (ACTIVE | TERMINAL, None, on_comment),
     "approve":  ({"review"}, "approved",  on_approve, all_approved),
     "complete": (ACTIVE,     "completed", clear_attention),
     "abandon":  (ACTIVE,     "abandoned", clear_attention),
