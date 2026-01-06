@@ -226,7 +226,8 @@ def cmd_list(args):
 def inbox_issues():
     u = user()
     items = [i for i in all_issues()
-             if u in i.get('attention', []) and i['status'] not in TERMINAL]
+             if u in i.get('attention', []) and i['status'] not in TERMINAL
+             and not i.get('blocked_by')]  # exclude blocked
     # Sort: blocking first, priority desc, then by id
     return sorted(items, key=lambda i: (not i.get('blocks'), -i.get('priority', 0), i['id']))
 
@@ -234,7 +235,8 @@ def outbox_issues():
     u = user()
     items = [i for i in all_issues()
              if i['owner'] == u and u not in i.get('attention', [])
-             and i['status'] not in TERMINAL]
+             and i['status'] not in TERMINAL
+             and not i.get('blocked_by')]  # exclude blocked
     return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
 def line(i, arrow_to=None):
