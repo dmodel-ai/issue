@@ -219,8 +219,8 @@ def cmd_list(args):
     for i in issues:
         marks = ""
         if i.get('attention'): marks += " ⚠️"
-        if i['blocks']: marks += f" [blocks: {len(i['blocks'])}]"
-        if i['blocked_by']: marks += f" [blocked: {len(i['blocked_by'])}]"
+        if i['blocks']: marks += f" [→ {refs(i['blocks'])}]"
+        if i['blocked_by']: marks += f" [← {refs(i['blocked_by'])}]"
         print(f"#{num(i['id']):<3} {i['status']:10} {i['owner']:15} {i['title']}{marks}")
 
 def inbox_issues():
