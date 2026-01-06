@@ -323,7 +323,17 @@ def cmd_link(args, add=True):
 
 # --- CLI ---
 
+CMDS = ["create", "show", "list", "update", "comment", "submit", "approve", "block", "unblock", "inbox", "outbox"]
+
 def main():
+    # Expand command prefix before argparse sees it
+    if len(sys.argv) > 1 and sys.argv[1] not in CMDS and not sys.argv[1].startswith('-'):
+        matches = [c for c in CMDS if c.startswith(sys.argv[1])]
+        if len(matches) == 1:
+            sys.argv[1] = matches[0]
+        elif len(matches) > 1:
+            die(f"Ambiguous: {', '.join(matches)}")
+
     p = argparse.ArgumentParser(description="Issue tracker. Run without args for inbox/outbox summary.")
     s = p.add_subparsers(dest="cmd", metavar="command")
 
