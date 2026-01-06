@@ -193,6 +193,12 @@ def cmd_show(args):
 def cmd_list(args):
     issues = all_issues()
 
+    # --me: owner OR reviewer OR cc
+    if args.me:
+        u = user()
+        issues = [i for i in issues if u == i['owner']
+                  or u in i.get('reviewers', []) or u in i.get('cc', [])]
+
     filters = [
         (args.owner,    lambda i, v: i['owner'] == v.replace('@me', user())),
         (args.status,   lambda i, v: i['status'] in v.split(',')),
@@ -537,6 +543,7 @@ def main():
     c.add_argument("text", nargs="?", help="omit to open $EDITOR")
 
     c = s.add_parser("list", help="list issues with filters")
+    c.add_argument("--me", action="store_true", help="owner, reviewer, or cc")
     c.add_argument("--owner")
     c.add_argument("--status", help="comma-separated")
     c.add_argument("--reviewer")
