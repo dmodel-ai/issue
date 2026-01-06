@@ -76,13 +76,6 @@ def get_issue_path(issue_id: str) -> Path:
     """Get path to issue file."""
     return ISSUES_DIR / f"{issue_id}.yaml"
 
-def find_issue_by_short_id(short_id: str) -> Optional[str]:
-    """Find full issue ID from short form (7+ chars). Returns None if ambiguous."""
-    if len(short_id) < 7:
-        return None
-    matches = [p.stem for p in ISSUES_DIR.glob("*.yaml") if p.stem.startswith(short_id)]
-    return matches[0] if len(matches) == 1 else None
-
 def load_issue(issue_id: str) -> Optional[Dict]:
     """Load issue from file."""
     path = get_issue_path(issue_id)
@@ -108,26 +101,41 @@ def list_all_issues() -> List[Dict]:
             issue = yaml.safe_load(f)
             if issue:
                 issues.append(issue)
-    # Sort by ID (which embeds timestamp)
+    # Sort by ID (UUIDv7 embeds timestamp, so this is chronological)
     issues.sort(key=lambda i: i['id'])
     return issues
+
+def get_issue_index() -> Dict[int, str]:
+    """Build mapping from issue number (1-indexed) to UUID."""
+    if not ISSUES_DIR.exists():
+        return {}
+    uuids = sorted(p.stem for p in ISSUES_DIR.glob("*.yaml"))
+    return {i + 1: uid for i, uid in enumerate(uuids)}
 
 def resolve_issue_id(id_arg: str) -> Optional[str]:
     """
     Resolve issue ID from user input.
-    Accepts full ID or short form (7+ chars).
-    Returns full ID or None if not found/ambiguous.
+    Accepts: issue number (1, 2, ...) or full UUID.
+    Returns full ID or None if not found.
     """
-    # If it looks like a full ID (32 hex chars), use directly
+    # Try as issue number first
+    if id_arg.isdigit():
+        index = get_issue_index()
+        return index.get(int(id_arg))
+
+    # Otherwise treat as UUID
     if len(id_arg) == 32 and all(c in '0123456789abcdef' for c in id_arg):
         return id_arg if get_issue_path(id_arg).exists() else None
 
-    # Otherwise, try short form lookup
-    return find_issue_by_short_id(id_arg)
+    return None
 
-def short_id(issue_id: str) -> str:
-    """Get short form of issue ID (7 chars, like git)."""
-    return issue_id[:7]
+def issue_num(issue_id: str) -> int:
+    """Get issue number (1-indexed position in sorted list)."""
+    index = get_issue_index()
+    for num, uid in index.items():
+        if uid == issue_id:
+            return num
+    return 0  # Not found
 
 def now_iso() -> str:
     """Get current time in ISO format with Z suffix."""
@@ -150,7 +158,7 @@ def print_last_comment(issue: Dict, indent: str = "         "):
 def print_issue_line(issue: Dict, owner_display: str = None, extra: str = ""):
     """Print a single-line issue summary."""
     owner = owner_display or issue['owner']
-    print(f"  #{short_id(issue['id'])} {issue['status']:8} → {owner:15} [{issue['title']}]{extra}")
+    print(f"  #{issue_num(issue['id'])} {issue['status']:8} → {owner:15} [{issue['title']}]{extra}")
 
 def save_with_timestamp(issue: Dict):
     """Update timestamp and save issue."""
@@ -159,7 +167,7 @@ def save_with_timestamp(issue: Dict):
 
 def format_id_list(ids: List[str]) -> str:
     """Format a list of issue IDs for display."""
-    return ', '.join(f'#{short_id(i)}' for i in ids)
+    return ', '.join(f'#{issue_num(i)}' for i in ids)
 
 def print_attention(issue: Dict):
     """Print current attention set."""
@@ -340,7 +348,7 @@ def cmd_create(args):
     issue["attention"] = [issue["owner"]]  # Initial attention on owner
     save_issue(issue)
 
-    print(f"Created issue #{short_id(issue_id)}: {args.title}")
+    print(f"Created issue #{issue_num(issue_id)}: {args.title}")
     print(f"Status: {issue['status']}")
     print_attention(issue)
 
@@ -349,7 +357,7 @@ def cmd_show(args):
     _, issue = require_issue(args.id)
 
     # Header
-    print(f"#{short_id(issue['id'])} - {issue['title']}")
+    print(f"#{issue_num(issue['id'])} - {issue['title']}")
     print(f"Status: {issue['status']}")
     print(f"Owner: {issue['owner']}")
     if issue['reviewers']:
@@ -410,7 +418,7 @@ def cmd_list(args):
         blocks_mark = f" [blocks: {len(issue['blocks'])}]" if issue['blocks'] else ""
         blocked_mark = f" [blocked by: {len(issue['blocked_by'])}]" if issue['blocked_by'] else ""
 
-        print(f"#{short_id(issue['id']):7s} {status} {owner} {issue['title']}{attention_mark}{blocks_mark}{blocked_mark}")
+        print(f"#{issue_num(issue['id']):<3} {status} {owner} {issue['title']}{attention_mark}{blocks_mark}{blocked_mark}")
 
 def cmd_update(args):
     """Update issue fields."""
@@ -457,7 +465,7 @@ def cmd_block(args):
         blocker["blocks"].append(issue_id)
         save_with_timestamp(blocker)
 
-    print(f"Issue #{short_id(issue_id)} is now blocked by #{short_id(blocker_id)}")
+    print(f"Issue #{issue_num(issue_id)} is now blocked by #{issue_num(blocker_id)}")
 
 def cmd_unblock(args):
     """Unblock issue."""
@@ -472,7 +480,7 @@ def cmd_unblock(args):
         blocker["blocks"].remove(issue_id)
         save_with_timestamp(blocker)
 
-    print(f"Issue #{short_id(issue_id)} is no longer blocked by #{short_id(blocker_id)}")
+    print(f"Issue #{issue_num(issue_id)} is no longer blocked by #{issue_num(blocker_id)}")
 
 def print_inbox(inbox_issues: List[Dict], user: str, limit: int = None, brief: bool = False):
     """Print inbox issues. If limit set, shows truncated view."""
@@ -522,7 +530,7 @@ def print_outbox(outbox_issues: List[Dict], limit: int = None, brief: bool = Fal
             extra = f" [blocked by {len(issue['blocked_by'])}]" if issue.get('blocked_by') else ""
         else:
             extra = f"\n         Blocked by: {format_id_list(issue['blocked_by'])}" if issue.get('blocked_by') else ""
-        print(f"  #{short_id(issue['id'])} {issue['status']:8} → {waiting_on:15} [{issue['title']}]{extra}")
+        print(f"  #{issue_num(issue['id'])} {issue['status']:8} → {waiting_on:15} [{issue['title']}]{extra}")
     if limit and len(outbox_issues) > limit:
         print(f"  ... and {len(outbox_issues) - limit} more (run 'issue outbox' to see all)")
 
