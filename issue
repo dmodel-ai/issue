@@ -133,18 +133,22 @@ def on_block(a, b):
         a["blocked_by"].append(b["id"])
     if a["id"] not in b.setdefault("blocks", []):
         b["blocks"].append(a["id"])
-    # Add blocked issue's attention set to blocker's CC and attention
+    # Move blocked issue's attention to blocker
     for u in a.get("attention", []):
         if u not in b.setdefault("cc", []):
             b["cc"].append(u)
         if u not in b.setdefault("attention", []):
             b["attention"].append(u)
+    a["attention"] = []  # nothing to do until blocker resolves
 
 def on_unblock(a, b):
     if b["id"] in a.get("blocked_by", []):
         a["blocked_by"].remove(b["id"])
     if a["id"] in b.get("blocks", []):
         b["blocks"].remove(a["id"])
+    # Restore attention to owner if no longer blocked
+    if not a.get("blocked_by") and not a.get("attention"):
+        a["attention"] = [a["owner"]]
 
 TRANSITIONS = {
     "submit":   ({"draft"},  "review",    on_submit),
