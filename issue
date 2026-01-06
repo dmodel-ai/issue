@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["pyyaml", "uuid-utils"]
+# dependencies = ["pyyaml", "uuid-utils", "textual"]
 # ///
 """
 Issue tracking inspired by Google Critique.
@@ -519,9 +519,101 @@ def cmd_pick(args):
     except FileNotFoundError:
         die("fzf not found")
 
+# --- TUI ---
+
+def cmd_tui(_):
+    from textual.app import App, ComposeResult
+    from textual.widgets import DataTable, Footer, Header, Static
+    from textual.binding import Binding
+
+    class IssueApp(App):
+        BINDINGS = [
+            Binding("q", "quit", "Quit"),
+            Binding("j", "cursor_down", "Down", show=False),
+            Binding("k", "cursor_up", "Up", show=False),
+            Binding("r", "refresh", "Refresh"),
+            Binding("enter", "show_issue", "Show"),
+            Binding("c", "comment", "Comment"),
+            Binding("e", "edit", "Edit"),
+        ]
+        CSS = """
+        DataTable { height: 1fr; }
+        #detail { height: auto; max-height: 40%; border-top: solid green; padding: 1; }
+        """
+
+        def compose(self) -> ComposeResult:
+            yield Header()
+            yield DataTable(id="issues")
+            yield Static("", id="detail")
+            yield Footer()
+
+        def on_mount(self):
+            self.load_issues()
+
+        def load_issues(self):
+            table = self.query_one("#issues", DataTable)
+            table.clear(columns=True)
+            table.add_columns("#", "Status", "Owner", "Title", "Deps")
+            table.cursor_type = "row"
+            for i in all_issues():
+                deps = f"→{refs(i['blocks'])}" if i.get('blocks') else \
+                       f"←{refs(i['blocked_by'])}" if i.get('blocked_by') else ""
+                attn = "⚠️" if i.get('attention') else ""
+                table.add_row(
+                    f"#{num(i['id'])}", i['status'], i['owner'],
+                    f"{attn} {i['title'][:40]}", deps,
+                    key=i['id']
+                )
+
+        def get_selected_id(self):
+            table = self.query_one("#issues", DataTable)
+            if table.cursor_row is not None:
+                return table.get_row_at(table.cursor_row)[0].lstrip('#')
+            return None
+
+        def action_show_issue(self):
+            n = self.get_selected_id()
+            if n:
+                id = resolve(n)
+                if id:
+                    i = load(id)
+                    detail = self.query_one("#detail", Static)
+                    lines = [
+                        f"[bold]#{n}[/] {i['title']}",
+                        f"status: {i['status']}  owner: {i['owner']}",
+                        f"attention: {', '.join(i.get('attention', []))}",
+                    ]
+                    if i.get('comments'):
+                        lines.append("")
+                        for c in i['comments'][-3:]:
+                            lines.append(f"  {c['author']}: {c['text'][:60]}")
+                    detail.update("\n".join(lines))
+
+        def action_refresh(self):
+            self.load_issues()
+            self.query_one("#detail", Static).update("")
+
+        def action_comment(self):
+            n = self.get_selected_id()
+            if n:
+                self.app.exit(result=("comment", n))
+
+        def action_edit(self):
+            n = self.get_selected_id()
+            if n:
+                self.app.exit(result=("edit", n))
+
+    result = IssueApp().run()
+    if result:
+        cmd, n = result
+        if cmd == "comment":
+            subprocess.run(["issue", "c", n])
+        elif cmd == "edit":
+            subprocess.run(["issue", "e", n])
+
 # --- CLI ---
 
-CMDS = ["new", "show", "list", "edit", "comment", "review", "approve", "block", "unblock", "inbox", "outbox", "pick"]
+CMDS = ["new", "show", "list", "edit", "comment", "review", "approve", "block", "unblock", "inbox", "outbox", "pick", "tui"]
 
 def main():
     # Bare number → edit that issue
@@ -591,6 +683,8 @@ def main():
     c.add_argument("-i", "--inbox", action="store_true", help="pick from inbox")
     c.add_argument("-o", "--outbox", action="store_true", help="pick from outbox")
 
+    s.add_parser("tui", help="interactive terminal UI")
+
     args = p.parse_args()
 
     cmds = {
@@ -606,6 +700,7 @@ def main():
         "inbox": cmd_inbox,
         "outbox": cmd_outbox,
         "pick": cmd_pick,
+        "tui": cmd_tui,
     }
     cmds.get(args.cmd, cmd_default)(args)
 
