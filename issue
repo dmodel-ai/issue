@@ -324,34 +324,35 @@ def cmd_link(args, add=True):
 # --- CLI ---
 
 def main():
-    p = argparse.ArgumentParser(description="Issue tracker")
-    s = p.add_subparsers(dest="cmd")
+    p = argparse.ArgumentParser(description="Issue tracker. Run without args for inbox/outbox summary.")
+    s = p.add_subparsers(dest="cmd", metavar="command")
 
-    c = s.add_parser("create")
+    c = s.add_parser("create", help="create new issue")
     c.add_argument("title")
     c.add_argument("-d", "--description")
-    c.add_argument("--owner")
-    c.add_argument("-p", "--priority", type=int)
+    c.add_argument("--owner", help="default: you")
+    c.add_argument("-p", "--priority", type=int, help="higher = more important")
     c.add_argument("-r", "--reviewers", nargs="+")
     c.add_argument("--cc", nargs="+")
     c.add_argument("-l", "--labels", nargs="+")
 
-    for name in ["show", "submit", "approve"]:
-        s.add_parser(name).add_argument("id")
+    s.add_parser("show", help="show issue details").add_argument("id")
+    s.add_parser("submit", help="submit for review (draft→review)").add_argument("id")
+    s.add_parser("approve", help="approve issue (review→approved)").add_argument("id")
 
-    c = s.add_parser("comment")
+    c = s.add_parser("comment", help="add comment")
     c.add_argument("id")
     c.add_argument("text")
 
-    c = s.add_parser("list")
+    c = s.add_parser("list", help="list issues with filters")
     c.add_argument("--owner")
-    c.add_argument("--status")
+    c.add_argument("--status", help="comma-separated")
     c.add_argument("--reviewer")
     c.add_argument("--label")
     c.add_argument("--blocked", action="store_true")
     c.add_argument("--blocking", action="store_true")
 
-    c = s.add_parser("update")
+    c = s.add_parser("update", help="update issue fields")
     c.add_argument("id")
     c.add_argument("--status", choices=["draft", "review", "approved", "completed", "abandoned"])
     c.add_argument("--owner")
@@ -360,13 +361,15 @@ def main():
     c.add_argument("--add-reviewer", nargs="+")
     c.add_argument("--add-label", nargs="+")
 
-    for name in ["block", "unblock"]:
-        c = s.add_parser(name)
-        c.add_argument("id")
-        c.add_argument("blocker_id")
+    c = s.add_parser("block", help="mark issue as blocked by another")
+    c.add_argument("id")
+    c.add_argument("blocker_id")
+    c = s.add_parser("unblock", help="remove blocking relationship")
+    c.add_argument("id")
+    c.add_argument("blocker_id")
 
-    s.add_parser("inbox")
-    s.add_parser("outbox")
+    s.add_parser("inbox", help="issues needing your action")
+    s.add_parser("outbox", help="your issues waiting on others")
 
     args = p.parse_args()
 
