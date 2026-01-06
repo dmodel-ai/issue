@@ -459,9 +459,36 @@ def cmd_link(args, add=True):
     save(b)
     print(f"#{num(a_id)} {'blocked by' if add else 'unblocked from'} #{num(b_id)}")
 
+def cmd_pick(args):
+    issues = all_issues()
+    if args.inbox:
+        issues = inbox_issues()
+    elif args.outbox:
+        issues = outbox_issues()
+    if not issues:
+        die("No issues")
+
+    lines = []
+    for i in issues:
+        n = num(i['id'])
+        status = i['status'][:8]
+        owner = i['owner'][:12]
+        title = i['title'][:40]
+        lines.append(f"{n}\t{status}\t{owner}\t{title}")
+
+    try:
+        result = subprocess.run(
+            ["fzf", "--with-nth=2..", "--delimiter=\t", "--preview", f"issue show {{1}}"],
+            input='\n'.join(lines), capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            print(result.stdout.strip().split('\t')[0])
+    except FileNotFoundError:
+        die("fzf not found")
+
 # --- CLI ---
 
-CMDS = ["create", "show", "list", "update", "comment", "submit", "approve", "block", "unblock", "inbox", "outbox"]
+CMDS = ["create", "show", "list", "update", "comment", "submit", "approve", "block", "unblock", "inbox", "outbox", "pick"]
 
 def main():
     # Expand command prefix before argparse sees it
@@ -519,6 +546,10 @@ def main():
     s.add_parser("inbox", help="issues needing your action")
     s.add_parser("outbox", help="your issues waiting on others")
 
+    c = s.add_parser("pick", help="fzf picker, outputs issue number")
+    c.add_argument("-i", "--inbox", action="store_true", help="pick from inbox")
+    c.add_argument("-o", "--outbox", action="store_true", help="pick from outbox")
+
     args = p.parse_args()
 
     cmds = {
@@ -533,6 +564,7 @@ def main():
         "unblock": lambda a: cmd_link(a, add=False),
         "inbox": cmd_inbox,
         "outbox": cmd_outbox,
+        "pick": cmd_pick,
     }
     cmds.get(args.cmd, cmd_default)(args)
 
