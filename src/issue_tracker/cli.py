@@ -41,6 +41,7 @@ def main():
     c.add_argument("text", nargs="?", help="omit to open $EDITOR")
 
     c = s.add_parser("list", help="list issues with filters")
+    c.add_argument("query", nargs="?", help="query DSL: field:value -negation text (e.g. 'owner:alice status:review')")
     c.add_argument("--me", action="store_true", help="owner, reviewer, or cc")
     c.add_argument("--owner")
     c.add_argument("--status", help="comma-separated")

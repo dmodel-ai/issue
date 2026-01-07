@@ -2,6 +2,7 @@
 from .utils import C, ago, user
 from .store import all_issues, fetch, num, refs
 from .state import TERMINAL
+from .query import filter_issues
 
 def cmd_show(args):
     _, i = fetch(args.id)
@@ -21,11 +22,16 @@ def cmd_show(args):
 def cmd_list(args):
     issues = all_issues()
 
+    # Apply query DSL if provided
+    if args.query:
+        issues = filter_issues(issues, args.query)
+
     if args.me:
         u = user()
         issues = [i for i in issues if u == i['owner']
                   or u in i.get('reviewers', []) or u in i.get('cc', [])]
 
+    # Translate flags to query terms for backwards compat
     filters = [
         (args.owner,    lambda i, v: i['owner'] == v.replace('@me', user())),
         (args.status,   lambda i, v: i['status'] in v.split(',')),

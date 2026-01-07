@@ -1,9 +1,9 @@
 """TUI: Textual-based interface."""
 import subprocess
-import yaml
 
 from .store import all_issues, load, num, resolve, refs
 from .views import inbox_issues, outbox_issues
+from .query import filter_issues
 
 def cmd_tui(_):
     from textual.app import App, ComposeResult
@@ -52,40 +52,6 @@ def cmd_tui(_):
             else:
                 return all_issues()
 
-        def matches_filter(self, issue):
-            for term in self.filter_text.split():
-                negate = term.startswith('-')
-                if negate:
-                    term = term[1:]
-                if ':' in term:
-                    field, val = term.split(':', 1)
-                    val = val.lower()
-                    if field == 'owner':
-                        match = val in issue.get('owner', '').lower()
-                    elif field == 'status':
-                        match = val in issue.get('status', '').lower()
-                    elif field == 'label':
-                        match = any(val in l.lower() for l in issue.get('labels', []))
-                    elif field == 'reviewer':
-                        match = any(val in r.lower() for r in issue.get('reviewers', []))
-                    elif field == 'cc':
-                        match = any(val in c.lower() for c in issue.get('cc', []))
-                    elif field == 'attention':
-                        match = any(val in a.lower() for a in issue.get('attention', []))
-                    elif field == 'blocks':
-                        match = any(val in str(num(b)) for b in issue.get('blocks', []))
-                    elif field == 'blocked':
-                        match = any(val in str(num(b)) for b in issue.get('blocked_by', []))
-                    else:
-                        match = val in yaml.dump(issue).lower()
-                else:
-                    match = term.lower() in yaml.dump(issue).lower()
-                if negate:
-                    match = not match
-                if not match:
-                    return False
-            return True
-
         def load_issues(self):
             table = self.query_one("#issues", DataTable)
             table.clear(columns=True)
@@ -93,7 +59,7 @@ def cmd_tui(_):
             table.cursor_type = "row"
             issues = self.get_issues()
             if self.filter_text:
-                issues = [i for i in issues if self.matches_filter(i)]
+                issues = filter_issues(issues, self.filter_text)
             self.query_one("#filter", Static).update(f"[bold]{self.view}[/]" + (f" /{self.filter_text}" if self.filter_text else ""))
             for i in issues:
                 deps = f"→{refs(i['blocks'])}" if i.get('blocks') else \
