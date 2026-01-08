@@ -8,6 +8,12 @@ C = {
     'reset': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
     'red': '\033[31m', 'green': '\033[32m', 'yellow': '\033[33m',
     'blue': '\033[34m', 'magenta': '\033[35m', 'cyan': '\033[36m',
+    # Bright versions
+    'bred': '\033[91m', 'bgreen': '\033[92m', 'byellow': '\033[93m',
+    'bblue': '\033[94m', 'bmagenta': '\033[95m', 'bcyan': '\033[96m',
+    # Background colors (with contrasting fg)
+    'bg_red': '\033[97;41m', 'bg_green': '\033[30;42m', 'bg_yellow': '\033[30;43m',
+    'bg_blue': '\033[97;44m', 'bg_magenta': '\033[97;45m', 'bg_cyan': '\033[30;46m',
 }
 
 
@@ -187,24 +193,31 @@ def cmd_gantt(args):
         except (ValueError, TypeError):
             return None
 
-    def render_bar(label, start, end, status, is_current=False):
-        sc = C.get(status_colors.get(status, ''), '')
-        marker = C['bold'] + '*' + C['reset'] if is_current else ''
-        print(f"{C['bold'] if is_current else ''}{label:<20}{C['reset']}", end="")
+    # Owner -> color mapping (background colors)
+    owner_colors = {
+        'alex': 'bg_red', 'anish': 'bg_magenta', 'adam': 'bg_green',
+        'dmoon': 'bg_blue', 'curry': 'bg_yellow',
+    }
+
+    def render_bar(label, start, end, owner, behind=False, done=False):
+        # Color by owner background, '-' for done, '*' for behind, space otherwise
+        sc = C.get(owner_colors.get(owner, ''), '') or C['dim']
+        fill = '-' if done else '*' if behind else ' '
+        print(f"{label:<20}", end="")
         for day in range(total_days):
             d = start_date + timedelta(days=day)
             char = " "
             if start and end and start <= d <= end:
-                if d == end:
-                    char = f"{sc}]{C['reset']}"
-                elif d == start:
-                    char = f"{sc}[{C['reset']}"
-                else:
-                    char = f"{sc}={C['reset']}"
+                char = f"{sc}{fill}{C['reset']}"
             if d == today and char == " ":
                 char = f"{C['dim']}:{C['reset']}"
             print(char, end="")
         print()
+
+    # Color legend in verbose mode
+    if args.verbose:
+        legend = ' '.join(f"{C.get(c, '')}{name}{C['reset']}" for name, c in owner_colors.items())
+        print(f"Legend: {legend}  [-]=done [*]=behind")
 
     # Header: week labels
     print(f"{' ' * 20}", end="")
@@ -229,25 +242,43 @@ def cmd_gantt(args):
     for i in issues:
         alias = i.get('alias') or f"#{num(i['id'])}"
         due = i.get('due', {})
+        owner = i.get('owner', '')
+        phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
+        current_idx = phase_order.index(i['status']) if i['status'] in phase_order else 0
 
         if args.verbose:
-            # Show each state as sub-bar (due date = start of that phase)
-            phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
-            phases = [(s, parse_date(due[s])) for s in phase_order if s in due]
+            # Show each state as sub-bar (due date = start of that phase), skip 'done'
+            phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != 'done']
+            done_date = parse_date(due.get('done', ''))
             if not phases:
                 continue
-            # Render task name header showing full span
-            render_bar(alias, phases[0][1], phases[-1][1], i['status'], True)
-            # Each phase bar: from this phase start to next phase start (or same if last)
+            # Header bar: behind if any phase should have started but hasn't
+            any_behind = any(today > start and phase_order.index(s) > current_idx
+                            for s, start in phases)
+            is_done = i['status'] == 'done'
+            header_end = done_date or phases[-1][1]
+            render_bar(alias, phases[0][1], header_end, owner, any_behind, is_done)
+            # Each phase bar (reviewer phases use reviewer color)
+            reviewers = i.get('reviewers', [])
+            reviewer = reviewers[0] if reviewers else owner
             for idx, (state, start) in enumerate(phases):
-                end = phases[idx + 1][1] if idx + 1 < len(phases) else start
-                is_current = (state == i['status'])
-                render_bar(f"  {state}", start, end, state, is_current)
+                if idx + 1 < len(phases):
+                    end = phases[idx + 1][1]
+                else:
+                    end = done_date or start
+                phase_idx = phase_order.index(state)
+                phase_done = current_idx > phase_idx
+                # Behind if phase should have started but we haven't reached it
+                behind = today > start and current_idx < phase_idx
+                phase_owner = reviewer if state in ('pqa', 'iqa') else owner
+                render_bar(f"  {state}", start, end, phase_owner, behind, phase_done)
         else:
             # Single bar from earliest due to latest due
             first_due = parse_date(min(due.values())) if due else None
             last_due = parse_date(max(due.values())) if due else None
-            render_bar(alias, first_due, last_due, i['status'], True)
+            is_done = i['status'] == 'done'
+            behind = last_due and today > last_due and not is_done
+            render_bar(alias, first_due, last_due, owner, behind, is_done)
 
 
 def cmd_default(_):
