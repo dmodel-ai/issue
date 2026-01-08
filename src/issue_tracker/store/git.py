@@ -2,12 +2,17 @@
 import os
 import subprocess
 import sys
+import threading
 import yaml
 from ..utils import die, now
 
 BRANCH = os.environ.get("ISSUE_BRANCH", "issues")
 REMOTE = os.environ.get("ISSUE_REMOTE", "origin")
 AUTO_SYNC = os.environ.get("ISSUE_SYNC", "1") != "0"
+
+# Background fetch state
+_fetch_thread = None
+_fetch_lock = threading.Lock()
 
 # Fields that are immutable (keep base)
 IMMUTABLE = {'id', 'created'}
@@ -44,7 +49,7 @@ def _ensure_branch():
 
 
 def _try_fetch():
-    """Try to fetch remote. Returns True if online/successful."""
+    """Try to fetch remote (blocking). Returns True if online/successful."""
     if not AUTO_SYNC or not _has_remote():
         return False
     result = subprocess.run(
@@ -52,6 +57,19 @@ def _try_fetch():
         capture_output=True
     )
     return result.returncode == 0
+
+
+def _fetch_background():
+    """Start a background fetch. Returns immediately."""
+    global _fetch_thread
+    if not AUTO_SYNC or not _has_remote():
+        return
+    with _fetch_lock:
+        # Don't start another fetch if one is running
+        if _fetch_thread is not None and _fetch_thread.is_alive():
+            return
+        _fetch_thread = threading.Thread(target=_try_fetch, daemon=True)
+        _fetch_thread.start()
 
 
 def _get_merge_base():
@@ -374,7 +392,7 @@ def _git_exists(filename):
 # Public API
 
 def load(id):
-    _try_fetch()  # Try to fetch, no-op if offline
+    _fetch_background()  # Non-blocking fetch for next read
     content = _read_local(f"{id}.yaml")
     return yaml.safe_load(content) if content else None
 
@@ -392,7 +410,7 @@ def save(issue):
 
 
 def all_issues():
-    _try_fetch()  # Try to fetch, no-op if offline
+    _fetch_background()  # Non-blocking fetch for next read
     files = [f for f in _git_list() if f.endswith('.yaml')]
     issues = [yaml.safe_load(_read_local(f)) for f in files]
     return sorted([i for i in issues if i], key=lambda i: i['id'])
@@ -433,7 +451,7 @@ def refs(ids):
 
 def read_raw(id):
     """Read raw YAML content for editor."""
-    _try_fetch()  # Try to fetch, no-op if offline
+    _fetch_background()  # Non-blocking fetch for next read
     return _read_local(f"{id}.yaml")
 
 
