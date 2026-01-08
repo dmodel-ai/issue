@@ -26,6 +26,8 @@ def cmd_show(args):
         pending = [r for r in reviewers if r not in approved]
         if pending:
             print(f"pending: {', '.join(pending)}")
+    if cc := i.get('cc'):
+        print(f"cc: {', '.join(cc)}")
 
     for k in ['attention', 'blocked_by', 'blocks', 'labels']:
         if v := i.get(k):
@@ -78,9 +80,12 @@ def cmd_list(args):
         if i['blocks']: marks += f" {C['green']}→ {refs(i['blocks'])}{C['reset']}"
         if i['blocked_by']: marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
         sc = C.get(status_colors.get(i['status'], ''), '')
-        owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == user() else f"{C['cyan']}{i['owner']}{C['reset']}"
+        u = user()
+        owner_name = "YOU" if i['owner'] == u else i['owner']
+        oc = C['bold'] if i['owner'] == u else C['cyan']
         alias = f" ({i['alias']})" if i.get('alias') else ""
-        print(f"{C['bold']}#{num(i['id'])}{C['reset']}{alias:<12} {sc}{i['status']:10}{C['reset']} {owner:24} {i['title']}{marks}")
+        id_alias = f"#{num(i['id'])}{alias}"
+        print(f"{C['bold']}{id_alias:<14}{C['reset']} {sc}{i['status']:10}{C['reset']} {oc}{owner_name:<16}{C['reset']} {i['title']}{marks}")
 
 
 def inbox_issues():
@@ -88,6 +93,14 @@ def inbox_issues():
     items = [i for i in all_issues()
              if u in i.get('attention', []) and not i.get('blocked_by')]
     return sorted(items, key=lambda i: (not i.get('blocks'), -i.get('priority', 0), i['id']))
+
+
+def cc_issues():
+    u = user()
+    items = [i for i in all_issues()
+             if u in (i.get('cc') or []) and i['owner'] != u
+             and u not in (i.get('attention') or [])]
+    return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
 
 def outbox_issues():
@@ -100,16 +113,18 @@ def outbox_issues():
 
 def line(i, arrow_to=None):
     u = user()
-    owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == u else f"{C['cyan']}{i['owner']}{C['reset']}"
-    arrow = arrow_to or owner
-    pri = f"{C['magenta']}P{i['priority']}{C['reset']}" if i.get('priority') else f"{C['dim']}-{C['reset']}"
-    deps = f"{C['green']}→{refs(i['blocks'])}{C['reset']}" if i.get('blocks') else \
-           f"{C['red']}←{refs(i['blocked_by'])}{C['reset']}" if i.get('blocked_by') else f"{C['dim']}-{C['reset']}"
-    comment = f'{C["dim"]}"{i["comments"][-1]["text"][:20]}"{C["reset"]}' if i.get('comments') else f'{C["dim"]}-{C["reset"]}'
+    owner_name = "YOU" if i['owner'] == u else i['owner']
+    arrow_name = arrow_to or owner_name
+    arrow_color = C['bold'] if not arrow_to and i['owner'] == u else C['cyan']
+    pri_str = f"P{i['priority']}" if i.get('priority') else "-"
+    pri_color = C['magenta'] if i.get('priority') else C['dim']
+    dep_str = f"→{refs(i['blocks'])}" if i.get('blocks') else f"←{refs(i['blocked_by'])}" if i.get('blocked_by') else "-"
+    dep_color = C['green'] if i.get('blocks') else C['red'] if i.get('blocked_by') else C['dim']
+    cmt = f'"{i["comments"][-1]["text"][:20]}"' if i.get('comments') else "-"
     sc = C.get(status_colors.get(i['status'], ''), '')
     alias = f" ({i['alias']})" if i.get('alias') else ""
     id_alias = f"#{num(i['id'])}{alias}"
-    print(f"  {C['bold']}{id_alias:<14}{C['reset']} {pri:6} {sc}{i['status']:8}{C['reset']} {arrow:17} [{i['title'][:25]:25}] {deps:12} {comment}")
+    print(f"  {C['bold']}{id_alias:<14}{C['reset']} {pri_color}{pri_str:<2}{C['reset']} {sc}{i['status']:8}{C['reset']} {arrow_color}{arrow_name:<12}{C['reset']} [{i['title'][:25]:25}] {dep_color}{dep_str:<8}{C['reset']} {C['dim']}{cmt}{C['reset']}")
 
 
 def cmd_inbox(_):
@@ -118,6 +133,16 @@ def cmd_inbox(_):
         print(f"{C['dim']}Inbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['green']}INBOX{C['reset']} ({len(items)})")
+    for i in items:
+        line(i)
+    return True
+
+
+def cmd_cc(_):
+    items = cc_issues()
+    if not items:
+        return False
+    print(f"{C['bold']}{C['cyan']}CC{C['reset']} ({len(items)})")
     for i in items:
         line(i)
     return True
@@ -135,9 +160,11 @@ def cmd_outbox(_):
 
 
 def cmd_default(_):
-    has = cmd_inbox(None)
-    if has: print()
-    has2 = cmd_outbox(None)
-    if has2: print()
-    if not has and not has2:
+    has_inbox = cmd_inbox(None)
+    if has_inbox: print()
+    has_cc = cmd_cc(None)
+    if has_cc: print()
+    has_outbox = cmd_outbox(None)
+    if has_outbox: print()
+    if not has_inbox and not has_cc and not has_outbox:
         print("No active issues.")

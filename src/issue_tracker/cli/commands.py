@@ -203,7 +203,7 @@ def cmd_update(args):
             die(f"Issue #{args.id} not found")
 
     has_flags = args.status or args.owner or args.title or args.priority is not None \
-                or args.add_reviewer or args.add_label or args.done or args.abandon or args.alias
+                or args.add_reviewer or args.add_cc or args.add_label or args.done or args.abandon or args.alias
 
     if not has_flags:
         content = read_raw(id)
@@ -239,6 +239,11 @@ def cmd_update(args):
     for r in (args.add_reviewer or []):
         if r not in issue.setdefault("reviewers", []):
             issue["reviewers"].append(r)
+    for c in (args.add_cc or []):
+        if issue.get("cc") is None:
+            issue["cc"] = []
+        if c not in issue["cc"]:
+            issue["cc"].append(c)
     for label in (args.add_label or []):
         if label not in issue.setdefault("labels", []):
             issue["labels"].append(label)
