@@ -15,7 +15,18 @@ def cmd_show(args):
     _, i = fetch(args.id)
     print(f"#{num(i['id'])} {i['title']}")
     print(f"status: {i['status']}  owner: {i['owner']}")
-    for k in ['reviewers', 'approved_by', 'attention', 'blocked_by', 'blocks', 'labels']:
+
+    # Show reviewer approval status
+    if reviewers := i.get('reviewers'):
+        approved = i.get('approved_by', [])
+        print(f"reviewers: {', '.join(reviewers)}")
+        if approved:
+            print(f"approved: {', '.join(approved)} ({len(approved)}/{len(reviewers)})")
+        pending = [r for r in reviewers if r not in approved]
+        if pending:
+            print(f"pending: {', '.join(pending)}")
+
+    for k in ['attention', 'blocked_by', 'blocks', 'labels']:
         if v := i.get(k):
             print(f"{k}: {refs(v) if k in ('blocked_by', 'blocks') else ', '.join(v)}")
     print(f"created: {i['created']}  updated: {i['updated']}")
@@ -60,6 +71,11 @@ def cmd_list(args):
     for i in issues:
         marks = ""
         if i.get('attention'): marks += f" {C['yellow']}⚠️{C['reset']}"
+        # Show approval progress for issues with reviewers
+        reviewers = i.get('reviewers', [])
+        approved = i.get('approved_by', [])
+        if reviewers and len(approved) < len(reviewers):
+            marks += f" [{len(approved)}/{len(reviewers)}]"
         if i['blocks']: marks += f" {C['green']}→ {refs(i['blocks'])}{C['reset']}"
         if i['blocked_by']: marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
         sc = C.get(status_colors.get(i['status'], ''), '')
