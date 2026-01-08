@@ -1,11 +1,9 @@
 import pytest
-import issue_tracker.utils as utils
 from issue_tracker.store import save
 from issue_tracker.cli.views import inbox_issues, outbox_issues
 
 @pytest.fixture
 def sample_issues(mock_user):
-    utils.DIR.mkdir(exist_ok=True)
     # In inbox: owned by testuser, in attention
     save({
         "id": "inbox1",

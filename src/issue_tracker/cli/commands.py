@@ -1,16 +1,16 @@
 """Commands: create, comment, update, link, pick."""
-import os, subprocess
+import os, subprocess, tempfile
 import uuid_utils as uuid
 import yaml
+from pathlib import Path
 
-from ..utils import DIR, die, edit, now, user
-from ..store import load, save, fetch, num, resolve, all_issues
+from ..utils import die, edit, now, user
+from ..store import load, save, fetch, num, resolve, all_issues, read_raw, write_raw
 from ..workflows import transition, workflow
 from .views import inbox_issues, outbox_issues
 
 
 def cmd_create(args):
-    DIR.mkdir(exist_ok=True)
     ts = now()
     owner = args.owner or user()
 
@@ -192,13 +192,19 @@ def cmd_update(args):
         if not id:
             die(f"Issue #{args.id} not found")
 
-    path = DIR / f"{id}.yaml"
     has_flags = args.status or args.owner or args.title or args.priority is not None \
                 or args.add_reviewer or args.add_label or args.done or args.abandon
 
     if not has_flags:
+        content = read_raw(id)
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write(content)
+            tmp_path = f.name
         editor = os.environ.get("EDITOR", "vi")
-        subprocess.run(f'{editor} "{path}"', shell=True)
+        subprocess.run(f'{editor} "{tmp_path}"', shell=True)
+        new_content = Path(tmp_path).read_text()
+        write_raw(id, new_content)
+        Path(tmp_path).unlink()
         print(f"Updated #{num(id)}")
         return
 

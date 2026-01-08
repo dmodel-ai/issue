@@ -3,8 +3,6 @@ import os, subprocess, sys, tempfile
 from datetime import datetime
 from pathlib import Path
 
-DIR = Path(".issues")
-
 
 def die(msg):
     print(msg, file=sys.stderr)
@@ -12,11 +10,12 @@ def die(msg):
 
 def edit(initial=""):
     editor = os.environ.get("EDITOR", "vi")
-    with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".md", mode="w+", delete=True) as f:
         f.write(initial)
         f.flush()
         subprocess.run(f'{editor} "{f.name}"', shell=True)
-        return Path(f.name).read_text()
+        f.seek(0)
+        return f.read()
 
 def now():
     return datetime.utcnow().isoformat() + 'Z'

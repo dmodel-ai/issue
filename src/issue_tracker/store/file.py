@@ -1,12 +1,17 @@
-"""Persistence: load, save, query issues."""
+"""Filesystem storage backend."""
+import os
 import yaml
-from .utils import DIR, die, now
+from pathlib import Path
+from ..utils import die, now
+
+DIR = Path(os.environ.get("ISSUE_DIR", ".issues"))
 
 def load(id):
     path = DIR / f"{id}.yaml"
     return yaml.safe_load(open(path)) if path.exists() else None
 
 def save(issue):
+    DIR.mkdir(exist_ok=True)
     issue["updated"] = now()
     yaml.dump(issue, open(DIR / f"{issue['id']}.yaml", "w"),
               default_flow_style=False, sort_keys=False)
@@ -41,3 +46,13 @@ def fetch(arg):
 
 def refs(ids):
     return ', '.join(f'#{num(i)}' for i in ids)
+
+def read_raw(id):
+    """Read raw YAML content for editor."""
+    path = DIR / f"{id}.yaml"
+    return path.read_text() if path.exists() else None
+
+def write_raw(id, content):
+    """Write raw YAML content from editor."""
+    DIR.mkdir(exist_ok=True)
+    (DIR / f"{id}.yaml").write_text(content)
