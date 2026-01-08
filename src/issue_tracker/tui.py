@@ -1,10 +1,17 @@
 """TUI: Textual-based interface."""
 import subprocess
+from datetime import datetime, timedelta
 
 from .store import all_issues, load, num, resolve, refs
 from .cli.views import inbox_issues, outbox_issues
 from .workflows import status_colors
 from .query import filter_issues
+
+# Owner -> Rich color mapping
+OWNER_COLORS = {
+    'alex': 'white on red', 'anish': 'white on magenta', 'adam': 'black on green',
+    'dmoon': 'white on blue', 'curry': 'black on yellow',
+}
 
 def cmd_tui(_):
     from textual.app import App, ComposeResult
@@ -20,6 +27,7 @@ def cmd_tui(_):
             Binding("i", "view_inbox", "Inbox"),
             Binding("o", "view_outbox", "Outbox"),
             Binding("a", "view_all", "All"),
+            Binding("g", "view_gantt", "Gantt"),
             Binding("/", "search", "Search"),
             Binding("l", "goto_blocker", "→Blocker"),
             Binding("h", "goto_blocked", "←Blocked"),
@@ -109,7 +117,10 @@ def cmd_tui(_):
                     detail.update("\n".join(lines))
 
         def action_refresh(self):
-            self.load_issues()
+            if self.view == "gantt":
+                self.load_gantt()
+            else:
+                self.load_issues()
             self.query_one("#detail", Static).update("")
 
         def action_view_inbox(self):
@@ -123,6 +134,97 @@ def cmd_tui(_):
         def action_view_all(self):
             self.view = "all"
             self.load_issues()
+
+        def action_view_gantt(self):
+            self.view = "gantt"
+            self.load_gantt()
+
+        def load_gantt(self):
+            table = self.query_one("#issues", DataTable)
+            table.clear(columns=True)
+            table.cursor_type = "row"
+
+            issues = [i for i in all_issues() if i.get('due')]
+            if not issues:
+                self.query_one("#filter", Static).update("[bold]gantt[/] (no issues with due dates)")
+                return
+
+            today = datetime.now().date()
+            start_date = today - timedelta(days=today.weekday())
+            weeks = 6
+            end_date = start_date + timedelta(weeks=weeks)
+            phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
+
+            def parse_date(s):
+                try:
+                    return datetime.strptime(s[:10], "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    return None
+
+            def render_bar(owner, start, end, behind=False, done=False):
+                color = OWNER_COLORS.get(owner, 'dim')
+                fill = '-' if done else '*' if behind else ' '
+                bar = []
+                for day in range((end_date - start_date).days):
+                    d = start_date + timedelta(days=day)
+                    if start and end and start <= d <= end:
+                        bar.append(f"[{color}]{fill}[/]")
+                    elif d == today:
+                        bar.append("[dim]:[/]")
+                    else:
+                        bar.append(" ")
+                return "".join(bar)
+
+            # Build week headers
+            header_dates = []
+            d = start_date
+            while d < end_date:
+                header_dates.append(d.strftime('%m/%d'))
+                d += timedelta(weeks=1)
+            table.add_columns("Issue", *header_dates)
+
+            # Legend
+            legend_parts = [f"[{c}]{n}[/]" for n, c in OWNER_COLORS.items()]
+            self.query_one("#filter", Static).update(f"[bold]gantt[/] " + " ".join(legend_parts) + " [-]=done [*]=behind")
+
+            for i in issues:
+                alias = i.get('alias') or f"#{num(i['id'])}"
+                due = i.get('due', {})
+                owner = i.get('owner', '')
+                current_idx = phase_order.index(i['status']) if i['status'] in phase_order else 0
+
+                phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != 'done']
+                done_date = parse_date(due.get('done', ''))
+                if not phases:
+                    continue
+
+                any_behind = any(today > start and phase_order.index(s) > current_idx for s, start in phases)
+                is_done = i['status'] == 'done'
+                header_end = done_date or phases[-1][1]
+                bar = render_bar(owner, phases[0][1], header_end, any_behind, is_done)
+
+                # Split bar into week chunks for columns
+                total_days = (end_date - start_date).days
+                days_per_week = 7
+                week_bars = []
+                for w in range(weeks):
+                    start_idx = w * days_per_week
+                    end_idx = start_idx + days_per_week
+                    # Re-render just this week's portion
+                    week_bar = []
+                    for day in range(start_idx, min(end_idx, total_days)):
+                        d = start_date + timedelta(days=day)
+                        if phases[0][1] and header_end and phases[0][1] <= d <= header_end:
+                            color = OWNER_COLORS.get(owner, 'dim')
+                            fill = '-' if is_done else '*' if any_behind else ' '
+                            week_bar.append(f"[{color}]{fill}[/]")
+                        elif d == today:
+                            week_bar.append("[bold]|[/]")
+                        else:
+                            week_bar.append(".")
+                    week_bars.append("".join(week_bar))
+
+                table.add_row(alias, *week_bars, key=i['id'])
 
         def action_search(self):
             from textual.widgets import Input
