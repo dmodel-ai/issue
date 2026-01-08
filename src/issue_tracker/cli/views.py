@@ -69,6 +69,7 @@ def cmd_list(args):
         print("No issues found")
         return
 
+    print(f"{C['dim']}{'ID':<14} {'STATUS':10} {'OWNER':<16} TITLE{C['reset']}")
     for i in issues:
         marks = ""
         if i.get('attention'): marks += f" {C['yellow']}⚠️{C['reset']}"
@@ -127,12 +128,16 @@ def line(i, arrow_to=None):
     print(f"  {C['bold']}{id_alias:<14}{C['reset']} {pri_color}{pri_str:<2}{C['reset']} {sc}{i['status']:8}{C['reset']} {arrow_color}{arrow_name:<12}{C['reset']} [{i['title'][:25]:25}] {dep_color}{dep_str:<8}{C['reset']} {C['dim']}{cmt}{C['reset']}")
 
 
+def header(who="OWNER"):
+    print(f"  {C['dim']}{'ID':<14} {'P':<2} {'STATUS':8} {who:<12} {'TITLE':25}   {'DEPS':<8} COMMENT{C['reset']}")
+
 def cmd_inbox(_):
     items = inbox_issues()
     if not items:
         print(f"{C['dim']}Inbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['green']}INBOX{C['reset']} ({len(items)})")
+    header()
     for i in items:
         line(i)
     return True
@@ -143,6 +148,7 @@ def cmd_cc(_):
     if not items:
         return False
     print(f"{C['bold']}{C['cyan']}CC{C['reset']} ({len(items)})")
+    header()
     for i in items:
         line(i)
     return True
@@ -154,6 +160,7 @@ def cmd_outbox(_):
         print(f"{C['dim']}Outbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['yellow']}OUTBOX{C['reset']} ({len(items)})")
+    header("WAITING")
     for i in items:
         line(i, ', '.join(i.get('attention', ['?']))[:12])
     return True
