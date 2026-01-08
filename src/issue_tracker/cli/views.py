@@ -32,6 +32,8 @@ def cmd_show(args):
     for k in ['attention', 'blocked_by', 'blocks', 'labels']:
         if v := i.get(k):
             print(f"{k}: {refs(v) if k in ('blocked_by', 'blocks') else ', '.join(v)}")
+    if due := i.get('due'):
+        print(f"due: {', '.join(f'{k}:{v}' for k, v in due.items())}")
     print(f"created: {i['created']}  updated: {i['updated']}")
     if i['comments']:
         print("\ncomments:")

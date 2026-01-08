@@ -79,6 +79,7 @@ def main():
     c.add_argument("-p", "--priority", type=int)
     c.add_argument("-r", "--add-reviewer", nargs="+")
     c.add_argument("-c", "--add-cc", nargs="+")
+    c.add_argument("-d", "--due", nargs="+", help="state:date pairs, e.g. draft:2024-01-15")
     c.add_argument("-l", "--add-label", nargs="+")
     c.add_argument("-D", "--done", action="store_true", help="mark completed")
     c.add_argument("-X", "--abandon", action="store_true", help="mark abandoned")

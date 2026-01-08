@@ -24,6 +24,7 @@ MERGE_STRATEGY = {
     'approved_by': 'union', 'attention': 'union',
     'blocked_by': 'union', 'blocks': 'union',
     'comments': 'comments',
+    'due': 'dict',
 }
 
 
@@ -177,6 +178,25 @@ def _merge_comments(key, b, r, l):
             unique.append(c)
     return sorted(unique, key=lambda c: c.get('time', ''))
 
+def _merge_dict(key, b, r, l):
+    """3-way merge for dicts: merge keys, conflict if same key changed differently."""
+    b, r, l = b or {}, r or {}, l or {}
+    merged = {}
+    for k in set(b) | set(r) | set(l):
+        bv, rv, lv = b.get(k), r.get(k), l.get(k)
+        local_changed, remote_changed = (lv != bv), (rv != bv)
+        if not local_changed and not remote_changed:
+            merged[k] = bv
+        elif local_changed and not remote_changed:
+            merged[k] = lv
+        elif not local_changed and remote_changed:
+            merged[k] = rv
+        elif lv == rv:
+            merged[k] = lv
+        else:
+            merged[k] = _prompt_conflict(f"{key}.{k}", rv, lv)
+    return merged if merged else None
+
 def _merge_local(key, b, r, l):
     """Prefer local, fall back to remote."""
     return l if l is not None else r
@@ -188,6 +208,7 @@ MERGE_FN = {
     'scalar': _merge_scalar,
     'union': _merge_union,
     'comments': _merge_comments,
+    'dict': _merge_dict,
 }
 
 

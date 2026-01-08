@@ -294,3 +294,48 @@ def test_3way_timestamp_takes_latest():
     local = {'id': 'abc', 'updated': '2024-01-03'}
     merged = _yaml_merge_3way(base, remote, local)
     assert merged['updated'] == '2024-01-05'
+
+
+# ============ dict merge tests (for due field) ============
+
+def test_3way_dict_both_add_different_keys():
+    """Both sides add different keys to dict - merge."""
+    base = {'id': 'abc', 'due': {'draft': '2024-01-01'}}
+    remote = {'id': 'abc', 'due': {'draft': '2024-01-01', 'pqa': '2024-01-10'}}
+    local = {'id': 'abc', 'due': {'draft': '2024-01-01', 'done': '2024-01-20'}}
+    merged = _yaml_merge_3way(base, remote, local)
+    assert merged['due'] == {'draft': '2024-01-01', 'pqa': '2024-01-10', 'done': '2024-01-20'}
+
+
+def test_3way_dict_one_changes_key():
+    """One side changes a key - use changed value."""
+    base = {'id': 'abc', 'due': {'draft': '2024-01-01'}}
+    remote = {'id': 'abc', 'due': {'draft': '2024-01-01'}}
+    local = {'id': 'abc', 'due': {'draft': '2024-01-05'}}
+    merged = _yaml_merge_3way(base, remote, local)
+    assert merged['due']['draft'] == '2024-01-05'
+
+
+def test_3way_dict_both_change_same_key_same_value():
+    """Both sides change same key to same value - no conflict."""
+    base = {'id': 'abc', 'due': {'draft': '2024-01-01'}}
+    remote = {'id': 'abc', 'due': {'draft': '2024-01-05'}}
+    local = {'id': 'abc', 'due': {'draft': '2024-01-05'}}
+    merged = _yaml_merge_3way(base, remote, local)
+    assert merged['due']['draft'] == '2024-01-05'
+
+
+def test_3way_dict_conflict_prompts():
+    """Both sides change same key differently - prompts."""
+    base = {'id': 'abc', 'due': {'draft': '2024-01-01'}}
+    remote = {'id': 'abc', 'due': {'draft': '2024-01-05'}}
+    local = {'id': 'abc', 'due': {'draft': '2024-01-10'}}
+
+    old_stdin = sys.stdin
+    sys.stdin = FakeTTY('2\n')  # Pick local
+
+    try:
+        merged = _yaml_merge_3way(base, remote, local)
+        assert merged['due']['draft'] == '2024-01-10'
+    finally:
+        sys.stdin = old_stdin
