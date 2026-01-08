@@ -14,49 +14,46 @@ AUTO_SYNC = os.environ.get("ISSUE_SYNC", "1") != "0"
 _fetch_thread = None
 _fetch_lock = threading.Lock()
 
-# Fields that are immutable (keep base)
-IMMUTABLE = {'id', 'created'}
-# Fields where we take the latest timestamp
-TIMESTAMP = {'updated'}
-# Scalar fields that conflict if both changed differently
-SCALAR = {'title', 'owner', 'status', 'priority', 'alias'}
-# List fields merged via union
-UNION = {'reviewers', 'cc', 'labels', 'approved_by', 'attention', 'blocked_by', 'blocks'}
-# Comments: append, sort by time, dedupe
+# Field merge strategies
+MERGE_STRATEGY = {
+    'id': 'immutable', 'created': 'immutable',
+    'updated': 'timestamp',
+    'title': 'scalar', 'owner': 'scalar', 'status': 'scalar',
+    'priority': 'scalar', 'alias': 'scalar',
+    'reviewers': 'union', 'cc': 'union', 'labels': 'union',
+    'approved_by': 'union', 'attention': 'union',
+    'blocked_by': 'union', 'blocks': 'union',
+    'comments': 'comments',
+}
+
+
+def _git(*args, input=None, check=False):
+    """Run git command, return stdout or None on failure."""
+    r = subprocess.run(["git", *args], capture_output=True, text=True, input=input)
+    if check and r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, args)
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _has_remote():
     """Check if remote exists."""
-    result = subprocess.run(["git", "remote"], capture_output=True, text=True)
-    return REMOTE in result.stdout.split()
+    return REMOTE in (_git("remote") or "").split()
 
 
 def _ensure_branch():
     """Create orphan branch if it doesn't exist."""
-    try:
-        subprocess.run(["git", "rev-parse", "--verify", BRANCH],
-                       capture_output=True, check=True)
-    except subprocess.CalledProcessError:
-        tree = subprocess.run(
-            ["git", "hash-object", "-t", "tree", "/dev/null"],
-            capture_output=True, text=True, check=True
-        ).stdout.strip()
-        commit = subprocess.run(
-            ["git", "commit-tree", tree, "-m", "Initialize issues"],
-            capture_output=True, text=True, check=True
-        ).stdout.strip()
-        subprocess.run(["git", "update-ref", f"refs/heads/{BRANCH}", commit], check=True)
+    if _git("rev-parse", "--verify", BRANCH):
+        return
+    tree = _git("hash-object", "-t", "tree", "/dev/null", check=True)
+    commit = _git("commit-tree", tree, "-m", "Initialize issues", check=True)
+    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
 
 
 def _try_fetch():
     """Try to fetch remote (blocking). Returns True if online/successful."""
     if not AUTO_SYNC or not _has_remote():
         return False
-    result = subprocess.run(
-        ["git", "fetch", REMOTE, f"{BRANCH}:refs/remotes/{REMOTE}/{BRANCH}"],
-        capture_output=True
-    )
-    return result.returncode == 0
+    return _git("fetch", REMOTE, f"{BRANCH}:refs/remotes/{REMOTE}/{BRANCH}") is not None
 
 
 def _fetch_background():
@@ -74,100 +71,43 @@ def _fetch_background():
 
 def _get_merge_base():
     """Get merge-base commit between local and remote. Returns None if not available."""
-    result = subprocess.run(
-        ["git", "merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}"],
-        capture_output=True, text=True
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
+    return _git("merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}")
 
 
 def _read_from_commit(commit, filename):
     """Read file from a specific commit. Returns None if not found."""
-    if not commit:
-        return None
-    try:
-        result = subprocess.run(
-            ["git", "show", f"{commit}:{filename}"],
-            capture_output=True, text=True, check=True
-        )
-        return result.stdout
-    except subprocess.CalledProcessError:
-        return None
+    return _git("show", f"{commit}:{filename}") if commit else None
 
 
 def _read_local(filename):
     """Read file from local issues branch."""
-    try:
-        result = subprocess.run(
-            ["git", "show", f"{BRANCH}:{filename}"],
-            capture_output=True, text=True, check=True
-        )
-        return result.stdout
-    except subprocess.CalledProcessError:
-        return None
+    return _git("show", f"{BRANCH}:{filename}")
 
 
 def _read_remote(filename):
     """Read file from origin/issues."""
-    try:
-        result = subprocess.run(
-            ["git", "show", f"{REMOTE}/{BRANCH}:{filename}"],
-            capture_output=True, text=True, check=True
-        )
-        return result.stdout
-    except subprocess.CalledProcessError:
-        return None
+    return _git("show", f"{REMOTE}/{BRANCH}:{filename}")
 
 
 def _write_local(filename, content, message):
     """Write to local issues branch using git plumbing."""
     _ensure_branch()
-
-    blob = subprocess.run(
-        ["git", "hash-object", "-w", "--stdin"],
-        input=content, capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-    try:
-        tree_content = subprocess.run(
-            ["git", "ls-tree", BRANCH],
-            capture_output=True, text=True, check=True
-        ).stdout
-    except subprocess.CalledProcessError:
-        tree_content = ""
-
-    lines = [l for l in tree_content.strip().split('\n')
-             if l and not l.endswith(f'\t{filename}')]
+    blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
+    tree_content = _git("ls-tree", BRANCH) or ""
+    lines = [l for l in tree_content.split('\n') if l and not l.endswith(f'\t{filename}')]
     lines.append(f"100644 blob {blob}\t{filename}")
-
-    new_tree = subprocess.run(
-        ["git", "mktree"],
-        input='\n'.join(lines), capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-    parent = subprocess.run(
-        ["git", "rev-parse", BRANCH],
-        capture_output=True, text=True
-    )
-    parent_args = ["-p", parent.stdout.strip()] if parent.returncode == 0 else []
-
-    commit = subprocess.run(
-        ["git", "commit-tree", new_tree, *parent_args, "-m", message],
-        capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-    subprocess.run(["git", "update-ref", f"refs/heads/{BRANCH}", commit], check=True)
+    new_tree = _git("mktree", input='\n'.join(lines), check=True)
+    parent = _git("rev-parse", BRANCH)
+    parent_args = ["-p", parent] if parent else []
+    commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
+    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
 
 
 def _try_push():
     """Try to push local to remote. Returns True on success."""
     if not AUTO_SYNC or not _has_remote():
         return True  # No remote, consider it "success"
-    result = subprocess.run(
-        ["git", "push", REMOTE, BRANCH],
-        capture_output=True, text=True
-    )
-    return result.returncode == 0
+    return _git("push", REMOTE, BRANCH) is not None
 
 
 def _prompt_conflict(field, remote_val, local_val):
@@ -190,157 +130,94 @@ def _prompt_conflict(field, remote_val, local_val):
             die("\nAborted")
 
 
+# Merge strategy functions - each takes (key, base, remote, local) -> value
+
+def _merge_immutable(key, b, r, l):
+    """Keep base value (or remote if no base)."""
+    return b if b is not None else r
+
+def _merge_timestamp(key, b, r, l):
+    """Take the latest timestamp."""
+    vals = [v for v in [r, l] if v]
+    return max(vals) if vals else b
+
+def _merge_scalar(key, b, r, l):
+    """Prompt user on conflict, else take non-None value."""
+    if r == l:
+        return l
+    if r is None:
+        return l
+    if l is None:
+        return r
+    return _prompt_conflict(key, r, l)
+
+def _merge_union(key, b, r, l):
+    """Union of lists, respecting additions and removals from base."""
+    base_set, remote_set, local_set = set(b or []), set(r or []), set(l or [])
+    added_r, added_l = remote_set - base_set, local_set - base_set
+    removed_r, removed_l = base_set - remote_set, base_set - local_set
+    result_set = (base_set | added_r | added_l) - removed_r - removed_l
+    # Preserve order: base items, then remote additions, then local additions
+    result = [x for x in (b or []) if x in result_set]
+    for x in (r or []):
+        if x in added_r and x not in result:
+            result.append(x)
+    for x in (l or []):
+        if x in added_l and x not in result:
+            result.append(x)
+    return result
+
+def _merge_comments(key, b, r, l):
+    """Dedupe by (author, time), sort chronologically."""
+    seen, unique = set(), []
+    for c in (b or []) + (r or []) + (l or []):
+        k = (c.get('author'), c.get('time'))
+        if k not in seen:
+            seen.add(k)
+            unique.append(c)
+    return sorted(unique, key=lambda c: c.get('time', ''))
+
+def _merge_local(key, b, r, l):
+    """Prefer local, fall back to remote."""
+    return l if l is not None else r
+
+
+MERGE_FN = {
+    'immutable': _merge_immutable,
+    'timestamp': _merge_timestamp,
+    'scalar': _merge_scalar,
+    'union': _merge_union,
+    'comments': _merge_comments,
+}
+
+
 def _yaml_merge_3way(base: dict, remote: dict, local: dict) -> dict:
-    """3-way merge with field-by-field rules.
-
-    For each field:
-    - If neither changed from base: use base
-    - If only local changed: use local
-    - If only remote changed: use remote
-    - If both changed to same value: use that value
-    - If both changed differently: apply field-specific strategy
-    """
-    base = base or {}
-    remote = remote or {}
-    local = local or {}
-
-    # If no base, fall back to 2-way merge preferring local
-    if not base:
-        return _yaml_merge_2way(remote, local)
-
+    """3-way merge: only conflict if both sides changed same field differently."""
+    base, remote, local = base or {}, remote or {}, local or {}
     merged = {}
-    all_keys = set(base.keys()) | set(remote.keys()) | set(local.keys())
 
-    for key in all_keys:
-        b_val = base.get(key)
-        r_val = remote.get(key)
-        l_val = local.get(key)
-
-        # Determine what changed
-        local_changed = l_val != b_val
-        remote_changed = r_val != b_val
+    for key in set(base) | set(remote) | set(local):
+        b, r, l = base.get(key), remote.get(key), local.get(key)
+        local_changed, remote_changed = (l != b), (r != b)
 
         if not local_changed and not remote_changed:
-            # Neither changed
-            merged[key] = b_val
+            merged[key] = b
         elif local_changed and not remote_changed:
-            # Only local changed
-            merged[key] = l_val
+            merged[key] = l
         elif not local_changed and remote_changed:
-            # Only remote changed
-            merged[key] = r_val
-        elif l_val == r_val:
-            # Both changed to same value
-            merged[key] = l_val
+            merged[key] = r
+        elif l == r:
+            merged[key] = l
         else:
-            # Both changed differently - apply field-specific strategy
-            merged[key] = _merge_conflict(key, b_val, r_val, l_val)
+            strategy = MERGE_STRATEGY.get(key, 'local')
+            merged[key] = MERGE_FN.get(strategy, _merge_local)(key, b, r, l)
 
     return merged
-
-
-def _merge_conflict(key, base_val, remote_val, local_val):
-    """Handle a field where both sides changed differently."""
-    if key in IMMUTABLE:
-        # Keep base
-        return base_val
-
-    elif key in TIMESTAMP:
-        # Take latest
-        vals = [v for v in [remote_val, local_val] if v]
-        return max(vals) if vals else base_val
-
-    elif key in SCALAR:
-        # Conflict - prompt user
-        return _prompt_conflict(key, remote_val, local_val)
-
-    elif key in UNION:
-        # Union of both changes (relative to base)
-        base_set = set(base_val or [])
-        remote_set = set(remote_val or [])
-        local_set = set(local_val or [])
-        # Items added by either side
-        added_by_remote = remote_set - base_set
-        added_by_local = local_set - base_set
-        # Items removed by either side
-        removed_by_remote = base_set - remote_set
-        removed_by_local = base_set - local_set
-        # Result: base + additions - removals
-        result_set = (base_set | added_by_remote | added_by_local) - removed_by_remote - removed_by_local
-        # Preserve order: base first, then remote additions, then local additions
-        result = [x for x in (base_val or []) if x in result_set]
-        for x in (remote_val or []):
-            if x in added_by_remote and x not in result:
-                result.append(x)
-        for x in (local_val or []):
-            if x in added_by_local and x not in result:
-                result.append(x)
-        return result
-
-    elif key == 'comments':
-        # Append all, sort by time, dedupe
-        all_comments = (base_val or []) + (remote_val or []) + (local_val or [])
-        seen = set()
-        unique = []
-        for c in all_comments:
-            key_tuple = (c.get('author'), c.get('time'))
-            if key_tuple not in seen:
-                seen.add(key_tuple)
-                unique.append(c)
-        return sorted(unique, key=lambda c: c.get('time', ''))
-
-    else:
-        # Unknown field: prefer local
-        return local_val
 
 
 def _yaml_merge_2way(remote: dict, local: dict) -> dict:
-    """2-way merge fallback when no base available."""
-    if not remote:
-        return local.copy() if local else {}
-
-    merged = {}
-    all_keys = set(remote.keys()) | set(local.keys())
-
-    for key in all_keys:
-        r_val = remote.get(key)
-        l_val = local.get(key)
-
-        if key in IMMUTABLE:
-            merged[key] = r_val if r_val is not None else l_val
-        elif key in TIMESTAMP:
-            if r_val and l_val:
-                merged[key] = max(r_val, l_val)
-            else:
-                merged[key] = l_val or r_val
-        elif key in SCALAR:
-            if r_val == l_val:
-                merged[key] = l_val
-            elif r_val is None:
-                merged[key] = l_val
-            elif l_val is None:
-                merged[key] = r_val
-            else:
-                merged[key] = _prompt_conflict(key, r_val, l_val)
-        elif key in UNION:
-            r_list = r_val or []
-            l_list = l_val or []
-            merged[key] = list(r_list) + [x for x in l_list if x not in r_list]
-        elif key == 'comments':
-            r_comments = r_val or []
-            l_comments = l_val or []
-            seen = set()
-            all_comments = []
-            for c in r_comments + l_comments:
-                key_tuple = (c.get('author'), c.get('time'))
-                if key_tuple not in seen:
-                    seen.add(key_tuple)
-                    all_comments.append(c)
-            merged['comments'] = sorted(all_comments, key=lambda c: c.get('time', ''))
-        else:
-            merged[key] = l_val if l_val is not None else r_val
-
-    return merged
+    """2-way merge (no base). Just calls 3-way with empty base."""
+    return _yaml_merge_3way({}, remote, local)
 
 
 def _try_sync(filename):
@@ -371,22 +248,12 @@ def _try_sync(filename):
 # Git helpers for listing/existence
 
 def _git_list():
-    try:
-        result = subprocess.run(
-            ["git", "ls-tree", "-r", "--name-only", BRANCH],
-            capture_output=True, text=True, check=True
-        )
-        return sorted(result.stdout.strip().split('\n')) if result.stdout.strip() else []
-    except subprocess.CalledProcessError:
-        return []
+    out = _git("ls-tree", "-r", "--name-only", BRANCH)
+    return sorted(out.split('\n')) if out else []
 
 
 def _git_exists(filename):
-    result = subprocess.run(
-        ["git", "cat-file", "-e", f"{BRANCH}:{filename}"],
-        capture_output=True
-    )
-    return result.returncode == 0
+    return _git("cat-file", "-e", f"{BRANCH}:{filename}") is not None
 
 
 # Public API
