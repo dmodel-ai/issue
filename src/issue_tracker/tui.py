@@ -3,6 +3,7 @@ import subprocess
 
 from .store import all_issues, load, num, resolve, refs
 from .cli.views import inbox_issues, outbox_issues
+from .workflows import status_colors
 from .query import filter_issues
 
 def cmd_tui(_):
@@ -65,8 +66,10 @@ def cmd_tui(_):
                 deps = f"→{refs(i['blocks'])}" if i.get('blocks') else \
                        f"←{refs(i['blocked_by'])}" if i.get('blocked_by') else ""
                 attn = "⚠️" if i.get('attention') else ""
+                sc = status_colors.get(i['status'], '')
+                status = f"[{sc}]{i['status']}[/{sc}]" if sc else i['status']
                 table.add_row(
-                    f"#{num(i['id'])}", i['status'], i['owner'],
+                    f"#{num(i['id'])}", status, i['owner'],
                     f"{attn} {i['title'][:40]}", deps,
                     key=i['id']
                 )
@@ -92,9 +95,11 @@ def cmd_tui(_):
                 if id:
                     i = load(id)
                     detail = self.query_one("#detail", Static)
+                    sc = status_colors.get(i['status'], '')
+                    status = f"[{sc}]{i['status']}[/{sc}]" if sc else i['status']
                     lines = [
                         f"[bold]#{n}[/] {i['title']}",
-                        f"status: {i['status']}  owner: {i['owner']}",
+                        f"status: {status}  owner: {i['owner']}",
                         f"attention: {', '.join(i.get('attention', []))}",
                     ]
                     if i.get('comments'):

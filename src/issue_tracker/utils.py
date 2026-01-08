@@ -1,15 +1,10 @@
-"""Core utilities: colors, helpers, config."""
+"""Core utilities: helpers, config."""
 import os, subprocess, sys, tempfile
 from datetime import datetime
 from pathlib import Path
 
 DIR = Path(".issues")
 
-C = {
-    'reset': '\033[0m', 'bold': '\033[1m', 'dim': '\033[2m',
-    'red': '\033[31m', 'green': '\033[32m', 'yellow': '\033[33m',
-    'blue': '\033[34m', 'magenta': '\033[35m', 'cyan': '\033[36m',
-}
 
 def die(msg):
     print(msg, file=sys.stderr)
