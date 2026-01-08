@@ -35,6 +35,10 @@ def resolve(arg):
         return index().get(int(arg))
     if len(arg) == 32 and (DIR / f"{arg}.yaml").exists():
         return arg
+    # Check alias
+    for issue in all_issues():
+        if issue.get('alias') == arg:
+            return issue['id']
     return None
 
 def fetch(arg):

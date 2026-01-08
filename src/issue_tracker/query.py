@@ -1,7 +1,7 @@
 """Query DSL: shared filter/search semantics for CLI and TUI.
 
 Syntax:
-  field:value  - match field (owner, status, label, reviewer, cc, attention, blocks, blocked)
+  field:value  - match field (owner, status, label, reviewer, cc, attention, blocks, blocked, alias)
   -term        - negation
   text         - full-text search in all fields
   Multiple terms are ANDed together
@@ -10,6 +10,7 @@ Examples:
   owner:alice status:review
   -label:wontfix
   owner:alice bug
+  alias:myfeature
 """
 import yaml
 from dataclasses import dataclass
@@ -82,6 +83,8 @@ def _match_term(issue: dict, term: Term) -> bool:
         return val in issue.get('owner', '').lower()
     elif field == 'status':
         return val in issue.get('status', '').lower()
+    elif field == 'alias':
+        return val in issue.get('alias', '').lower()
     elif field == 'label':
         return any(val in l.lower() for l in issue.get('labels', []))
     elif field == 'reviewer':

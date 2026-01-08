@@ -13,7 +13,8 @@ C = {
 
 def cmd_show(args):
     _, i = fetch(args.id)
-    print(f"#{num(i['id'])} {i['title']}")
+    alias_str = f" ({i['alias']})" if i.get('alias') else ""
+    print(f"#{num(i['id'])}{alias_str} {i['title']}")
     print(f"status: {i['status']}  owner: {i['owner']}")
 
     # Show reviewer approval status

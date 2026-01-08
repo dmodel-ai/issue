@@ -10,11 +10,17 @@ from ..workflows import transition, workflow
 from .views import inbox_issues, outbox_issues
 
 
+def validate_alias(alias):
+    if alias and alias.isdigit():
+        die("Alias cannot be a number")
+    return alias
+
 def cmd_create(args):
     ts = now()
     owner = args.owner or user()
 
     title = args.title
+    alias = validate_alias(args.alias)
     priority = args.priority or 0
     reviewers = args.reviewers or []
     cc = args.cc or []
@@ -26,6 +32,7 @@ def cmd_create(args):
     if not title:
         text = edit(f"""\
 Owner: {owner}
+Alias: {alias or ''}
 Priority: {priority}
 Reviewers: {', '.join(reviewers)}
 CC: {', '.join(cc)}
@@ -61,6 +68,8 @@ Blocks:
 
         if meta.get('owner'):
             owner = meta['owner']
+        if meta.get('alias'):
+            alias = validate_alias(meta['alias'])
         if meta.get('priority'):
             priority = int(meta['priority'])
         if meta.get('reviewers'):
@@ -99,6 +108,8 @@ Blocks:
         "comments": [],
         "attention": [owner],
     }
+    if alias:
+        issue["alias"] = alias
     if comment:
         issue["comments"].append({"author": owner, "time": ts, "text": comment})
     for bid in blocked_by:
@@ -192,7 +203,7 @@ def cmd_update(args):
             die(f"Issue #{args.id} not found")
 
     has_flags = args.status or args.owner or args.title or args.priority is not None \
-                or args.add_reviewer or args.add_label or args.done or args.abandon
+                or args.add_reviewer or args.add_label or args.done or args.abandon or args.alias
 
     if not has_flags:
         content = read_raw(id)
@@ -220,6 +231,8 @@ def cmd_update(args):
         issue["owner"] = args.owner
     if args.title:
         issue["title"] = args.title
+    if args.alias:
+        issue["alias"] = validate_alias(args.alias)
     if args.priority is not None:
         issue["priority"] = args.priority
 

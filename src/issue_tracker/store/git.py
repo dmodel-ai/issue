@@ -114,6 +114,10 @@ def resolve(arg):
         return index().get(int(arg))
     if len(arg) == 32 and _git_exists(f"{arg}.yaml"):
         return arg
+    # Check alias
+    for issue in all_issues():
+        if issue.get('alias') == arg:
+            return issue['id']
     return None
 
 def fetch(arg):

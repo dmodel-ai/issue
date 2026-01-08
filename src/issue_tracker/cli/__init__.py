@@ -50,6 +50,7 @@ def main():
     # Static commands
     c = s.add_parser("new", help="create new issue")
     c.add_argument("title", nargs="?", help="omit to open $EDITOR")
+    c.add_argument("-a", "--alias", help="short name for stable reference")
     c.add_argument("--owner", help="default: you")
     c.add_argument("-p", "--priority", type=int, help="higher = more important")
     c.add_argument("-r", "--reviewers", nargs="+")
@@ -71,6 +72,7 @@ def main():
 
     c = s.add_parser("edit", help="edit issue fields")
     c.add_argument("id", nargs="?", help="default: first inbox issue")
+    c.add_argument("-a", "--alias", help="short name for stable reference")
     c.add_argument("-s", "--status", choices=sorted(all_states()))
     c.add_argument("-o", "--owner")
     c.add_argument("-t", "--title")

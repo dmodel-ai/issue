@@ -46,3 +46,8 @@ def test_resolve_by_uuid():
 def test_resolve_invalid():
     assert resolve("999") is None
     assert resolve("notauuid") is None
+
+def test_resolve_by_alias():
+    save({"id": "aliased123", "title": "Test", "status": "draft", "owner": "x", "alias": "myfeature"})
+    assert resolve("myfeature") == "aliased123"
+    assert resolve("nonexistent") is None
