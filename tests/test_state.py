@@ -1,5 +1,10 @@
 import pytest
-from issue_tracker.workflows import transition, pending
+from issue_tracker.workflows import StateMachine
+from issue_tracker.workflows import issue
+
+m = StateMachine(issue)
+transition = m.transition
+pending = issue.pending
 
 
 def make_issue(**kw):
