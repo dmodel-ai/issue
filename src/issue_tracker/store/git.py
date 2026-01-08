@@ -362,7 +362,7 @@ def _try_sync(filename):
     merged["updated"] = now()
 
     content = yaml.dump(merged, default_flow_style=False, sort_keys=False)
-    _write_local(filename, content, f"Sync issue {filename[:-5][:8]}")
+    _write_local(filename, content, _commit_msg(merged, "Sync"))
 
     if not _try_push():
         print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
@@ -397,13 +397,20 @@ def load(id):
     return yaml.safe_load(content) if content else None
 
 
+def _commit_msg(issue, action="Update"):
+    """Generate human-friendly commit message."""
+    title = issue.get('title', '')[:50]
+    ref = issue.get('alias') or f"#{num(issue['id']) or issue['id'][:8]}"
+    return f"{action}: {title} ({ref})"
+
+
 def save(issue):
     filename = f"{issue['id']}.yaml"
     issue["updated"] = now()
 
     # Write locally first (works offline)
     content = yaml.dump(issue, default_flow_style=False, sort_keys=False)
-    _write_local(filename, content, f"Update issue {issue['id'][:8]}")
+    _write_local(filename, content, _commit_msg(issue))
 
     # Try to sync with remote
     _try_sync(filename)
@@ -458,9 +465,10 @@ def read_raw(id):
 def write_raw(id, content):
     """Write raw YAML content from editor."""
     filename = f"{id}.yaml"
+    issue = yaml.safe_load(content) or {}
 
     # Write locally first
-    _write_local(filename, content, f"Edit issue {id[:8]}")
+    _write_local(filename, content, _commit_msg(issue, "Edit"))
 
     # Try to sync with remote
     _try_sync(filename)
