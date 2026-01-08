@@ -203,7 +203,7 @@ def cmd_update(args):
             die(f"Issue #{args.id} not found")
 
     has_flags = args.status or args.owner or args.title or args.priority is not None \
-                or args.add_reviewer or args.add_cc or args.due or args.add_label or args.done or args.abandon or args.alias
+                or args.add_reviewer or args.add_cc or len(args.due) or args.add_label or args.done or args.abandon or args.alias
 
     if not has_flags:
         content = read_raw(id)
@@ -244,7 +244,7 @@ def cmd_update(args):
             issue["cc"] = []
         if c not in issue["cc"]:
             issue["cc"].append(c)
-    for d in (args.due or []):
+    for d in args.due:
         if ':' not in d:
             die(f"Invalid due format: {d} (expected state:date)")
         state, date = d.split(':', 1)

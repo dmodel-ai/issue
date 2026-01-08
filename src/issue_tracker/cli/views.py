@@ -234,7 +234,8 @@ def cmd_gantt(args):
         if args.verbose:
             # Show each state deadline as sub-bar
             sorted_dues = sorted(due.items(), key=lambda x: x[1])
-            prev_end = created
+            first_due = parse_date(sorted_dues[0][1]) if sorted_dues else None
+            prev_end = min(created, first_due) if created and first_due else (created or first_due)
             for state, date_str in sorted_dues:
                 due_date = parse_date(date_str)
                 is_current = (state == i['status'])
@@ -242,10 +243,12 @@ def cmd_gantt(args):
                 render_bar(label, prev_end, due_date, state, is_current)
                 prev_end = due_date
         else:
-            # Single bar from created to current status due
+            # Single bar from earliest date to current status due
             due_date_str = due.get(i['status']) or min(due.values()) if due else None
             due_date = parse_date(due_date_str)
-            render_bar(alias, created, due_date, i['status'], True)
+            first_due = parse_date(min(due.values())) if due else None
+            bar_start = min(created, first_due) if created and first_due else (created or first_due)
+            render_bar(alias, bar_start, due_date, i['status'], True)
 
 
 def cmd_default(_):
