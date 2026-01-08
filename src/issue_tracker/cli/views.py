@@ -201,7 +201,8 @@ def cmd_gantt(args):
 
     def render_bar(label, start, end, owner, behind=False, done=False):
         # Color by owner background, '-' for done, '*' for behind, space otherwise
-        sc = C.get(owner_colors.get(owner, ''), '') or C['dim']
+        # Fallback to cyan background for unmapped owners
+        sc = C.get(owner_colors.get(owner, 'bg_cyan'), '')
         fill = '-' if done else '*' if behind else ' '
         print(f"{label:<20}", end="")
         for day in range(total_days):

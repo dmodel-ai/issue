@@ -162,7 +162,7 @@ def cmd_tui(_):
                     return None
 
             def render_bar(owner, start, end, behind=False, done=False):
-                color = OWNER_COLORS.get(owner, 'dim')
+                color = OWNER_COLORS.get(owner, 'black on cyan')
                 fill = '-' if done else '*' if behind else ' '
                 bar = []
                 for day in range((end_date - start_date).days):
@@ -215,7 +215,7 @@ def cmd_tui(_):
                     for day in range(start_idx, min(end_idx, total_days)):
                         d = start_date + timedelta(days=day)
                         if phases[0][1] and header_end and phases[0][1] <= d <= header_end:
-                            color = OWNER_COLORS.get(owner, 'dim')
+                            color = OWNER_COLORS.get(owner, 'black on cyan')
                             fill = '-' if is_done else '*' if any_behind else ' '
                             week_bar.append(f"[{color}]{fill}[/]")
                         elif d == today:
