@@ -107,9 +107,9 @@ def line(i, arrow_to=None):
            f"{C['red']}←{refs(i['blocked_by'])}{C['reset']}" if i.get('blocked_by') else f"{C['dim']}-{C['reset']}"
     comment = f'{C["dim"]}"{i["comments"][-1]["text"][:20]}"{C["reset"]}' if i.get('comments') else f'{C["dim"]}-{C["reset"]}'
     sc = C.get(status_colors.get(i['status'], ''), '')
-    alias = f"({i['alias']})" if i.get('alias') else ""
-    id_alias = f"#{num(i['id'])}{' ' + alias if alias else ''}"
-    print(f"  {C['bold']}{id_alias:<10}{C['reset']} {pri:14} {sc}{i['status']:8}{C['reset']} {arrow:21} [{i['title'][:25]:25}] {deps:20} {comment}")
+    alias = f" ({i['alias']})" if i.get('alias') else ""
+    id_alias = f"#{num(i['id'])}{alias}"
+    print(f"  {C['bold']}{id_alias:<14}{C['reset']} {pri:6} {sc}{i['status']:8}{C['reset']} {arrow:17} [{i['title'][:25]:25}] {deps:12} {comment}")
 
 
 def cmd_inbox(_):
