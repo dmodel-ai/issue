@@ -21,6 +21,8 @@ def now():
     return datetime.utcnow().isoformat() + 'Z'
 
 def user():
+    if u := os.environ.get("ISSUE_USER"):
+        return u
     try:
         email = subprocess.run(["git", "config", "user.email"],
                                capture_output=True, text=True, check=True).stdout.strip()
