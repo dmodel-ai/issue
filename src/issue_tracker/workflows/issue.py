@@ -76,7 +76,7 @@ transitions = {
     "review":   ({"draft"},         "review",    on_submit),
     "comment":  (active | terminal, None,        on_comment),
     "approve":  ({"review"},        "approved",  on_approve, all_approved),
-    "complete": (active,            "completed", clear_attention),
+    "done":     (active,            "completed", clear_attention),
     "abandon":  (active,            "abandoned", clear_attention),
     "block":    (active,            None,        on_block),
     "unblock":  (active,            None,        on_unblock),

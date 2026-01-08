@@ -65,9 +65,9 @@ def test_approve_partial():
     assert issue["attention"] == ["carol"]
 
 
-def test_complete_clears_attention():
+def test_done_clears_attention():
     issue = make_issue(status="approved")
-    transition(issue, "complete")
+    transition(issue, "done")
     assert issue["status"] == "completed"
     assert issue["attention"] == []
 

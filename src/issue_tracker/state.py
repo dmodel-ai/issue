@@ -1,12 +1,10 @@
 """State machine: transitions and handlers (re-exports from workflow module)."""
 import os
+import importlib
 from .machine import StateMachine
 
 workflow_name = os.environ.get("ISSUE_WORKFLOW", "issue")
-if workflow_name == "kanban":
-    from .workflows import kanban as workflow
-else:
-    from .workflows import issue as workflow
+workflow = importlib.import_module(f".workflows.{workflow_name}", __package__)
 
 _machine = StateMachine(workflow)
 

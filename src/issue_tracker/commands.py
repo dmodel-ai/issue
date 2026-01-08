@@ -149,7 +149,7 @@ def cmd_do(action, args):
     for extra in extra_issues:
         save(extra)
 
-    past = {"review": "Submitted for review", "comment": "Commented on", "approve": "Approved"}
+    past = {"review": "Submitted for review", "comment": "Commented on", "approve": "Approved", "done": "Completed"}
     print(f"{past.get(action, action.title() + 'ed')} #{args.id}")
     print(f"Attention: {', '.join(issue['attention'])}")
 

@@ -195,9 +195,9 @@ def cmd_tui(_):
             break
         cmd, n = result
         if cmd == "show":
-            subprocess.run(["issue", "s", n])
+            subprocess.run(["issue", "show", n])
         elif cmd == "comment":
-            subprocess.run(["issue", "c", n])
+            subprocess.run(["issue", "comment", n])
         elif cmd == "edit":
-            subprocess.run(["issue", "e", n])
+            subprocess.run(["issue", "edit", n])
         input("\nPress Enter to return to TUI...")
