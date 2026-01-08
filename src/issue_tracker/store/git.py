@@ -397,20 +397,33 @@ def load(id):
     return yaml.safe_load(content) if content else None
 
 
-def _commit_msg(issue, action="Update"):
+def _commit_msg(issue, action="Update", old_issue=None):
     """Generate human-friendly commit message."""
     title = issue.get('title', '')[:50]
     ref = issue.get('alias') or f"#{num(issue['id']) or issue['id'][:8]}"
-    return f"{action}: {title} ({ref})"
+    msg = f"{action}: {title} ({ref})"
+
+    # Add status transition if changed
+    old_status = old_issue.get('status') if old_issue else None
+    new_status = issue.get('status')
+    if old_status and new_status and old_status != new_status:
+        msg += f" [{old_status} → {new_status}]"
+
+    return msg
 
 
 def save(issue):
     filename = f"{issue['id']}.yaml"
+
+    # Read previous version to detect changes
+    old_content = _read_local(filename)
+    old_issue = yaml.safe_load(old_content) if old_content else None
+
     issue["updated"] = now()
 
     # Write locally first (works offline)
     content = yaml.dump(issue, default_flow_style=False, sort_keys=False)
-    _write_local(filename, content, _commit_msg(issue))
+    _write_local(filename, content, _commit_msg(issue, old_issue=old_issue))
 
     # Try to sync with remote
     _try_sync(filename)
