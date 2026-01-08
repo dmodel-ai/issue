@@ -79,7 +79,8 @@ def cmd_list(args):
         if i['blocked_by']: marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
         sc = C.get(status_colors.get(i['status'], ''), '')
         owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == user() else f"{C['cyan']}{i['owner']}{C['reset']}"
-        print(f"{C['bold']}#{num(i['id']):<3}{C['reset']} {sc}{i['status']:10}{C['reset']} {owner:24} {i['title']}{marks}")
+        alias = f" ({i['alias']})" if i.get('alias') else ""
+        print(f"{C['bold']}#{num(i['id'])}{C['reset']}{alias:<12} {sc}{i['status']:10}{C['reset']} {owner:24} {i['title']}{marks}")
 
 
 def inbox_issues():
@@ -106,7 +107,9 @@ def line(i, arrow_to=None):
            f"{C['red']}←{refs(i['blocked_by'])}{C['reset']}" if i.get('blocked_by') else f"{C['dim']}-{C['reset']}"
     comment = f'{C["dim"]}"{i["comments"][-1]["text"][:20]}"{C["reset"]}' if i.get('comments') else f'{C["dim"]}-{C["reset"]}'
     sc = C.get(status_colors.get(i['status'], ''), '')
-    print(f"  {C['bold']}#{num(i['id']):<2}{C['reset']} {pri:14} {sc}{i['status']:8}{C['reset']} {arrow:21} [{i['title'][:25]:25}] {deps:20} {comment}")
+    alias = f"({i['alias']})" if i.get('alias') else ""
+    id_alias = f"#{num(i['id'])}{' ' + alias if alias else ''}"
+    print(f"  {C['bold']}{id_alias:<10}{C['reset']} {pri:14} {sc}{i['status']:8}{C['reset']} {arrow:21} [{i['title'][:25]:25}] {deps:20} {comment}")
 
 
 def cmd_inbox(_):
