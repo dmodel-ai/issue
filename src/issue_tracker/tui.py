@@ -9,8 +9,8 @@ from .query import filter_issues
 
 # Owner -> Rich color mapping
 OWNER_COLORS = {
-    'alex': 'white on red', 'anish': 'white on magenta', 'adam': 'black on green',
-    'dmoon': 'white on blue', 'curry': 'black on yellow',
+    'alex': 'white on red', 'anish': 'white on purple', 'adam': 'black on green',
+    'dmoon': 'white on navy_blue', 'curry': 'black on yellow',
 }
 
 def cmd_tui(_):
@@ -28,6 +28,7 @@ def cmd_tui(_):
             Binding("o", "view_outbox", "Outbox"),
             Binding("a", "view_all", "All"),
             Binding("g", "view_gantt", "Gantt"),
+            Binding("v", "toggle_verbose", "Verbose"),
             Binding("/", "search", "Search"),
             Binding("l", "goto_blocker", "→Blocker"),
             Binding("h", "goto_blocked", "←Blocked"),
@@ -42,6 +43,7 @@ def cmd_tui(_):
             super().__init__()
             self.view = "inbox"
             self.filter_text = ""
+            self.gantt_verbose = False
 
         def compose(self) -> ComposeResult:
             yield Header()
@@ -139,12 +141,19 @@ def cmd_tui(_):
             self.view = "gantt"
             self.load_gantt()
 
+        def action_toggle_verbose(self):
+            if self.view == "gantt":
+                self.gantt_verbose = not self.gantt_verbose
+                self.load_gantt()
+
         def load_gantt(self):
             table = self.query_one("#issues", DataTable)
             table.clear(columns=True)
             table.cursor_type = "row"
 
             issues = [i for i in all_issues() if i.get('due')]
+            if self.filter_text:
+                issues = filter_issues(issues, self.filter_text)
             if not issues:
                 self.query_one("#filter", Static).update("[bold]gantt[/] (no issues with due dates)")
                 return
@@ -153,6 +162,8 @@ def cmd_tui(_):
             start_date = today - timedelta(days=today.weekday())
             weeks = 6
             end_date = start_date + timedelta(weeks=weeks)
+            total_days = (end_date - start_date).days
+            days_per_week = 7
             phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
 
             def parse_date(s):
@@ -161,19 +172,25 @@ def cmd_tui(_):
                 except (ValueError, TypeError):
                     return None
 
-            def render_bar(owner, start, end, behind=False, done=False):
-                color = OWNER_COLORS.get(owner, 'black on cyan')
-                fill = '-' if done else '*' if behind else ' '
-                bar = []
-                for day in range((end_date - start_date).days):
-                    d = start_date + timedelta(days=day)
-                    if start and end and start <= d <= end:
-                        bar.append(f"[{color}]{fill}[/]")
-                    elif d == today:
-                        bar.append("[dim]:[/]")
-                    else:
-                        bar.append(" ")
-                return "".join(bar)
+            def render_week_bar(bar_start, bar_end, owner, behind=False, done=False):
+                """Render bar split into week columns."""
+                week_bars = []
+                for w in range(weeks):
+                    start_idx = w * days_per_week
+                    end_idx = start_idx + days_per_week
+                    week_bar = []
+                    for day in range(start_idx, min(end_idx, total_days)):
+                        d = start_date + timedelta(days=day)
+                        if bar_start and bar_end and bar_start <= d <= bar_end:
+                            color = OWNER_COLORS.get(owner, 'white on navy_blue')
+                            fill = '-' if done else '*' if behind else ' '
+                            week_bar.append(f"[{color}]{fill}[/]")
+                        elif d == today:
+                            week_bar.append("[bold]|[/]")
+                        else:
+                            week_bar.append(".")
+                    week_bars.append("".join(week_bar))
+                return week_bars
 
             # Build week headers
             header_dates = []
@@ -185,12 +202,19 @@ def cmd_tui(_):
 
             # Legend
             legend_parts = [f"[{c}]{n}[/]" for n, c in OWNER_COLORS.items()]
-            self.query_one("#filter", Static).update(f"[bold]gantt[/] " + " ".join(legend_parts) + " [-]=done [*]=behind")
+            verbose_indicator = " [v]" if self.gantt_verbose else ""
+            filter_indicator = f" /{self.filter_text}" if self.filter_text else ""
+            self.query_one("#filter", Static).update(
+                f"[bold]gantt{verbose_indicator}[/]{filter_indicator} " +
+                " ".join(legend_parts) + " [-]=done [*]=behind"
+            )
 
             for i in issues:
                 alias = i.get('alias') or f"#{num(i['id'])}"
                 due = i.get('due', {})
                 owner = i.get('owner', '')
+                reviewers = i.get('reviewers', [])
+                reviewer = reviewers[0] if reviewers else owner
                 current_idx = phase_order.index(i['status']) if i['status'] in phase_order else 0
 
                 phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != 'done']
@@ -201,30 +225,29 @@ def cmd_tui(_):
                 any_behind = any(today > start and phase_order.index(s) > current_idx for s, start in phases)
                 is_done = i['status'] == 'done'
                 header_end = done_date or phases[-1][1]
-                bar = render_bar(owner, phases[0][1], header_end, any_behind, is_done)
 
-                # Split bar into week chunks for columns
-                total_days = (end_date - start_date).days
-                days_per_week = 7
-                week_bars = []
-                for w in range(weeks):
-                    start_idx = w * days_per_week
-                    end_idx = start_idx + days_per_week
-                    # Re-render just this week's portion
-                    week_bar = []
-                    for day in range(start_idx, min(end_idx, total_days)):
-                        d = start_date + timedelta(days=day)
-                        if phases[0][1] and header_end and phases[0][1] <= d <= header_end:
-                            color = OWNER_COLORS.get(owner, 'black on cyan')
-                            fill = '-' if is_done else '*' if any_behind else ' '
-                            week_bar.append(f"[{color}]{fill}[/]")
-                        elif d == today:
-                            week_bar.append("[bold]|[/]")
-                        else:
-                            week_bar.append(".")
-                    week_bars.append("".join(week_bar))
-
+                # Header row
+                week_bars = render_week_bar(phases[0][1], header_end, owner, any_behind, is_done)
                 table.add_row(alias, *week_bars, key=i['id'])
+
+                # Phase breakdown rows in verbose mode
+                if self.gantt_verbose:
+                    # Filter phases if filter_text matches a phase name
+                    phase_filter = self.filter_text.lower() if self.filter_text else ""
+                    for idx, (state, phase_start) in enumerate(phases):
+                        if phase_filter and phase_filter in ['draft', 'pqa', 'augmenting', 'iqa']:
+                            if phase_filter not in state:
+                                continue
+                        if idx + 1 < len(phases):
+                            phase_end = phases[idx + 1][1]
+                        else:
+                            phase_end = done_date or phase_start
+                        phase_idx = phase_order.index(state)
+                        phase_done = current_idx > phase_idx
+                        behind = today > phase_start and current_idx < phase_idx
+                        phase_owner = reviewer if state in ('pqa', 'iqa') else owner
+                        week_bars = render_week_bar(phase_start, phase_end, phase_owner, behind, phase_done)
+                        table.add_row(f"  {state}", *week_bars, key=f"{i['id']}_{state}")
 
         def action_search(self):
             from textual.widgets import Input
@@ -234,7 +257,10 @@ def cmd_tui(_):
         def on_input_submitted(self, event):
             self.filter_text = event.value
             event.input.remove()
-            self.load_issues()
+            if self.view == "gantt":
+                self.load_gantt()
+            else:
+                self.load_issues()
 
         def action_comment(self):
             n = self.get_selected_id()

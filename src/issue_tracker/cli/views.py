@@ -196,13 +196,13 @@ def cmd_gantt(args):
     # Owner -> color mapping (background colors)
     owner_colors = {
         'alex': 'bg_red', 'anish': 'bg_magenta', 'adam': 'bg_green',
-        'dmoon': 'bg_blue', 'curry': 'bg_yellow',
+        'dmoon': 'bg_cyan', 'curry': 'bg_yellow',
     }
 
     def render_bar(label, start, end, owner, behind=False, done=False):
         # Color by owner background, '-' for done, '*' for behind, space otherwise
-        # Fallback to cyan background for unmapped owners
-        sc = C.get(owner_colors.get(owner, 'bg_cyan'), '')
+        # Fallback to blue background for unmapped owners
+        sc = C.get(owner_colors.get(owner, 'bg_blue'), '')
         fill = '-' if done else '*' if behind else ' '
         print(f"{label:<20}", end="")
         for day in range(total_days):
