@@ -20,6 +20,7 @@ def pending(issue):
 
 def on_submit(issue, **_):
     issue["attention"] = issue["reviewers"].copy() if issue["reviewers"] else [issue["owner"]]
+    issue["approved_by"] = []
 
 
 def on_comment(issue, u, text=None, **_):
