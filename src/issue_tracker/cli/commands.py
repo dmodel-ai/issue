@@ -96,7 +96,6 @@ Blocks:
         "blocked_by": blocked_by,
         "blocks": blocks,
         "labels": labels,
-        "description": args.description or "",
         "comments": [],
         "attention": [owner],
     }

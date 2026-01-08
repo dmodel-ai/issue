@@ -50,7 +50,6 @@ def main():
     # Static commands
     c = s.add_parser("new", help="create new issue")
     c.add_argument("title", nargs="?", help="omit to open $EDITOR")
-    c.add_argument("-d", "--description")
     c.add_argument("--owner", help="default: you")
     c.add_argument("-p", "--priority", type=int, help="higher = more important")
     c.add_argument("-r", "--reviewers", nargs="+")

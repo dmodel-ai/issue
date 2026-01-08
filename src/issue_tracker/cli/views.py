@@ -30,8 +30,6 @@ def cmd_show(args):
         if v := i.get(k):
             print(f"{k}: {refs(v) if k in ('blocked_by', 'blocks') else ', '.join(v)}")
     print(f"created: {i['created']}  updated: {i['updated']}")
-    if i['description']:
-        print("\n" + i['description'])
     if i['comments']:
         print("\ncomments:")
         for c in i['comments']:
