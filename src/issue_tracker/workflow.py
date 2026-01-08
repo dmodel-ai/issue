@@ -11,9 +11,5 @@ Transition = (
 
 @runtime_checkable
 class Workflow(Protocol):
-    terminal: Set[str]
-    active: Set[str]
     transitions: Dict[str, Transition]
-
-    def on_block(self, a: dict, b: dict) -> None: ...
-    def on_unblock(self, a: dict, b: dict) -> None: ...
+    status_colors: Dict[str, str]

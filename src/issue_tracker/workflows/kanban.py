@@ -4,6 +4,15 @@ from ..utils import now
 terminal = {"done", "wontfix"}
 active = {"backlog", "ready", "in_progress", "blocked"}
 
+status_colors = {
+    "backlog": "dim",
+    "ready": "cyan",
+    "in_progress": "yellow",
+    "blocked": "red",
+    "done": "green",
+    "wontfix": "dim",
+}
+
 
 def on_ready(issue, **_):
     """Move from backlog to ready when groomed."""
@@ -31,28 +40,6 @@ def on_unblock_ext(issue, **_):
 
 def on_done(issue, **_):
     issue["attention"] = []
-
-
-def on_block(a, b):
-    """Block issue a on issue b."""
-    if b["id"] not in a.setdefault("blocked_by", []):
-        a["blocked_by"].append(b["id"])
-    if a["id"] not in b.setdefault("blocks", []):
-        b["blocks"].append(a["id"])
-    for u in a.get("attention", []):
-        if u not in b.setdefault("attention", []):
-            b["attention"].append(u)
-    a["attention"] = []
-
-
-def on_unblock(a, b):
-    """Unblock issue a from issue b."""
-    if b["id"] in a.get("blocked_by", []):
-        a["blocked_by"].remove(b["id"])
-    if a["id"] in b.get("blocks", []):
-        b["blocks"].remove(a["id"])
-    if not a.get("blocked_by") and not a.get("attention"):
-        a["attention"] = [a.get("assignee", a["owner"])]
 
 
 transitions = {

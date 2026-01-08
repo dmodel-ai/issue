@@ -1,13 +1,37 @@
 """CLI: argument parsing and main entry point."""
 import argparse
+import inspect
 import sys
 
 from .utils import die
 from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_default
-from .commands import cmd_create, cmd_do, cmd_comment, cmd_update, cmd_link, cmd_pick
+from .commands import cmd_create, cmd_do, cmd_comment, cmd_update, cmd_pick
 from .tui import cmd_tui
+from .state import workflow
 
-CMDS = ["new", "show", "list", "edit", "comment", "review", "approve", "block", "unblock", "inbox", "outbox", "pick", "tui"]
+
+def make_help(frm, to):
+    """Generate help text from transition tuple."""
+    frm_str = ",".join(sorted(frm))
+    return f"{frm_str} → {to}" if to else f"({frm_str})"
+
+
+def all_states():
+    """Compute all states from transitions."""
+    states = set()
+    for frm, to, *_ in workflow.transitions.values():
+        states |= frm
+        if to:
+            states.add(to)
+    return states
+
+
+# Non-transition commands
+STATIC_CMDS = ["new", "show", "list", "edit", "inbox", "outbox", "pick", "tui"]
+
+# Build full command list
+CMDS = STATIC_CMDS + list(workflow.transitions.keys())
+
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1].isdigit():
@@ -23,6 +47,7 @@ def main():
     p = argparse.ArgumentParser(description="Issue tracker. Run without args for inbox/outbox summary.")
     s = p.add_subparsers(dest="cmd", metavar="command")
 
+    # Static commands
     c = s.add_parser("new", help="create new issue")
     c.add_argument("title", nargs="?", help="omit to open $EDITOR")
     c.add_argument("-d", "--description")
@@ -33,12 +58,6 @@ def main():
     c.add_argument("-l", "--labels", nargs="+")
 
     s.add_parser("show", help="show issue details").add_argument("id")
-    s.add_parser("review", help="request review (draft→review)").add_argument("id")
-    s.add_parser("approve", help="approve issue (review→approved)").add_argument("id")
-
-    c = s.add_parser("comment", help="add comment")
-    c.add_argument("id", nargs="?", help="default: first inbox issue")
-    c.add_argument("text", nargs="?", help="omit to open $EDITOR")
 
     c = s.add_parser("list", help="list issues with filters")
     c.add_argument("query", nargs="?", help="query DSL: field:value -negation text (e.g. 'owner:alice status:review')")
@@ -53,7 +72,7 @@ def main():
 
     c = s.add_parser("edit", help="edit issue fields")
     c.add_argument("id", nargs="?", help="default: first inbox issue")
-    c.add_argument("-s", "--status", choices=["draft", "review", "approved", "completed", "abandoned"])
+    c.add_argument("-s", "--status", choices=sorted(all_states()))
     c.add_argument("-o", "--owner")
     c.add_argument("-t", "--title")
     c.add_argument("-p", "--priority", type=int)
@@ -61,13 +80,6 @@ def main():
     c.add_argument("-l", "--add-label", nargs="+")
     c.add_argument("-D", "--done", action="store_true", help="mark completed")
     c.add_argument("-X", "--abandon", action="store_true", help="mark abandoned")
-
-    c = s.add_parser("block", help="mark issue as blocked by another")
-    c.add_argument("id")
-    c.add_argument("blocker_id")
-    c = s.add_parser("unblock", help="remove blocking relationship")
-    c.add_argument("id")
-    c.add_argument("blocker_id")
 
     s.add_parser("inbox", help="issues needing your action")
     s.add_parser("outbox", help="your issues waiting on others")
@@ -78,21 +90,51 @@ def main():
 
     s.add_parser("tui", help="interactive terminal UI")
 
-    args = p.parse_args()
+    # Generate transition commands dynamically from handler signatures
+    for name, t in workflow.transitions.items():
+        frm, to, handler = t[0], t[1], t[2]
 
-    cmds = {
+        if name == "comment":
+            # comment has special handling (default id, editor fallback)
+            c = s.add_parser(name, help=make_help(frm, to))
+            c.add_argument("id", nargs="?", help="default: first inbox issue")
+            c.add_argument("text", nargs="?", help="omit to open $EDITOR")
+            continue
+
+        c = s.add_parser(name, help=make_help(frm, to))
+        c.add_argument("id")
+
+        # Add args for handler params after 'issue', skip 'u' (from user())
+        sig = inspect.signature(handler)
+        for param, param_info in list(sig.parameters.items())[1:]:  # skip 'issue'
+            if param.startswith('_') or param in ('kwargs', 'u'):
+                continue
+            # Optional if has default, required otherwise
+            if param_info.default is inspect.Parameter.empty:
+                c.add_argument(param)
+            else:
+                c.add_argument(param, nargs='?')
+
+    args = p.parse_args()
+    cmd = args.cmd
+
+    # Static command handlers
+    static_handlers = {
         "new": cmd_create,
         "show": cmd_show,
         "list": cmd_list,
         "edit": cmd_update,
-        "comment": cmd_comment,
-        "review": lambda a: cmd_do("submit", a),
-        "approve": lambda a: cmd_do("approve", a),
-        "block": lambda a: cmd_link(a, add=True),
-        "unblock": lambda a: cmd_link(a, add=False),
         "inbox": cmd_inbox,
         "outbox": cmd_outbox,
         "pick": cmd_pick,
         "tui": cmd_tui,
     }
-    cmds.get(args.cmd, cmd_default)(args)
+
+    if cmd in static_handlers:
+        static_handlers[cmd](args)
+    elif cmd == "comment":
+        cmd_comment(args)
+    elif cmd in workflow.transitions:
+        cmd_do(cmd, args)
+    else:
+        cmd_default(args)

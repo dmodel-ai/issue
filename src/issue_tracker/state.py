@@ -4,10 +4,7 @@ from .workflows import issue as workflow
 
 _machine = StateMachine(workflow)
 
-# Re-export for backwards compat
-TERMINAL = workflow.terminal
-ACTIVE = workflow.active
+# Re-export for external use
 transition = _machine.transition
 pending = workflow.pending
-on_block = workflow.on_block
-on_unblock = workflow.on_unblock
+status_colors = workflow.status_colors

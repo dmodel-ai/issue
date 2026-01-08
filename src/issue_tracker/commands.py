@@ -5,8 +5,9 @@ import yaml
 
 from .utils import DIR, die, edit, now, user
 from .store import load, save, fetch, num, resolve
-from .state import TERMINAL, transition, on_block, on_unblock
+from .state import transition, workflow
 from .views import inbox_issues, outbox_issues, all_issues
+
 
 def cmd_create(args):
     DIR.mkdir(exist_ok=True)
@@ -115,14 +116,43 @@ Blocks:
     print(f"Created #{num(issue['id'])}: {title}")
     print(f"Attention: {owner}")
 
-def cmd_do(action, args):
-    _, issue = fetch(args.id)
-    transition(issue, action, u=user(), text=getattr(args, 'text', None))
-    save(issue)
 
-    past = {"submit": "Submitted", "comment": "Commented on", "approve": "Approved"}
+def cmd_do(action, args):
+    import inspect
+    _, issue = fetch(args.id)
+
+    # Build ctx from handler params
+    handler = workflow.transitions[action][2]
+    sig = inspect.signature(handler)
+    params = list(sig.parameters.keys())
+
+    ctx = {"u": user()}
+    extra_issues = []
+
+    for param in params[1:]:  # skip 'issue'
+        if param.startswith('_') or param == 'kwargs':
+            continue
+        val = getattr(args, param, None)
+        if val is None:
+            continue
+        # Try to resolve as issue reference
+        resolved = resolve(val)
+        if resolved:
+            _, loaded = fetch(val)
+            ctx[param] = loaded
+            extra_issues.append(loaded)
+        else:
+            ctx[param] = val
+
+    transition(issue, action, **ctx)
+    save(issue)
+    for extra in extra_issues:
+        save(extra)
+
+    past = {"review": "Submitted for review", "comment": "Commented on", "approve": "Approved"}
     print(f"{past.get(action, action.title() + 'ed')} #{args.id}")
     print(f"Attention: {', '.join(issue['attention'])}")
+
 
 def cmd_comment(args):
     if not args.id:
@@ -150,6 +180,7 @@ def cmd_comment(args):
     print(f"Commented on #{num(id)}")
     print(f"Attention: {', '.join(issue['attention'])}")
 
+
 def cmd_update(args):
     if not args.id:
         inbox = inbox_issues()
@@ -174,7 +205,7 @@ def cmd_update(args):
     issue = load(id)
     status = args.status or ("completed" if args.done else "abandoned" if args.abandon else None)
     if status:
-        if status in TERMINAL:
+        if status in workflow.terminal:
             action = "complete" if status == "completed" else "abandon"
             transition(issue, action)
         else:
@@ -197,13 +228,6 @@ def cmd_update(args):
     save(issue)
     print(f"Updated #{num(id)}")
 
-def cmd_link(args, add=True):
-    a_id, a = fetch(args.id)
-    b_id, b = fetch(args.blocker_id)
-    (on_block if add else on_unblock)(a, b)
-    save(a)
-    save(b)
-    print(f"#{num(a_id)} {'blocked by' if add else 'unblocked from'} #{num(b_id)}")
 
 def cmd_pick(args):
     issues = all_issues()

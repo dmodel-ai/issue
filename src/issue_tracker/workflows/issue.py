@@ -4,6 +4,14 @@ from ..utils import die, now
 terminal = {"completed", "abandoned"}
 active = {"draft", "review", "approved"}
 
+status_colors = {
+    "draft": "dim",
+    "review": "yellow",
+    "approved": "green",
+    "completed": "dim",
+    "abandoned": "red",
+}
+
 
 def pending(issue):
     return [r for r in issue.get("reviewers", [])
@@ -14,7 +22,7 @@ def on_submit(issue, **_):
     issue["attention"] = issue["reviewers"].copy() if issue["reviewers"] else [issue["owner"]]
 
 
-def on_comment(issue, u, text, **_):
+def on_comment(issue, u, text=None, **_):
     issue["comments"].append({"author": u, "time": now(), "text": text})
     if issue["status"] in terminal:
         return
@@ -40,32 +48,36 @@ def clear_attention(issue, **_):
     issue["attention"] = []
 
 
-def on_block(a, b):
-    if b["id"] not in a.setdefault("blocked_by", []):
-        a["blocked_by"].append(b["id"])
-    if a["id"] not in b.setdefault("blocks", []):
-        b["blocks"].append(a["id"])
-    for u in a.get("attention", []):
-        if u not in b.setdefault("cc", []):
-            b["cc"].append(u)
-        if u not in b.setdefault("attention", []):
-            b["attention"].append(u)
-    a["attention"] = []
+def on_block(issue, blocker, **_):
+    """Block issue on blocker."""
+    if blocker["id"] not in issue.setdefault("blocked_by", []):
+        issue["blocked_by"].append(blocker["id"])
+    if issue["id"] not in blocker.setdefault("blocks", []):
+        blocker["blocks"].append(issue["id"])
+    for u in issue.get("attention", []):
+        if u not in blocker.setdefault("cc", []):
+            blocker["cc"].append(u)
+        if u not in blocker.setdefault("attention", []):
+            blocker["attention"].append(u)
+    issue["attention"] = []
 
 
-def on_unblock(a, b):
-    if b["id"] in a.get("blocked_by", []):
-        a["blocked_by"].remove(b["id"])
-    if a["id"] in b.get("blocks", []):
-        b["blocks"].remove(a["id"])
-    if not a.get("blocked_by") and not a.get("attention"):
-        a["attention"] = [a["owner"]]
+def on_unblock(issue, blocker, **_):
+    """Unblock issue from blocker."""
+    if blocker["id"] in issue.get("blocked_by", []):
+        issue["blocked_by"].remove(blocker["id"])
+    if issue["id"] in blocker.get("blocks", []):
+        blocker["blocks"].remove(issue["id"])
+    if not issue.get("blocked_by") and not issue.get("attention"):
+        issue["attention"] = [issue["owner"]]
 
 
 transitions = {
-    "submit":   ({"draft"},  "review",    on_submit),
-    "comment":  (active | terminal, None, on_comment),
-    "approve":  ({"review"}, "approved",  on_approve, all_approved),
-    "complete": (active,     "completed", clear_attention),
-    "abandon":  (active,     "abandoned", clear_attention),
+    "review":   ({"draft"},         "review",    on_submit),
+    "comment":  (active | terminal, None,        on_comment),
+    "approve":  ({"review"},        "approved",  on_approve, all_approved),
+    "complete": (active,            "completed", clear_attention),
+    "abandon":  (active,            "abandoned", clear_attention),
+    "block":    (active,            None,        on_block),
+    "unblock":  (active,            None,        on_unblock),
 }

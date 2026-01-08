@@ -73,22 +73,3 @@ def test_invalid_transition():
     issue = make_issue(status="done")
     with pytest.raises(SystemExit):
         m.transition(issue, "finish")
-
-
-def test_on_block_links_issues():
-    a = make_issue(id="a", attention=["alice"])
-    b = make_issue(id="b", attention=["bob"])
-    kanban.on_block(a, b)
-    assert "b" in a["blocked_by"]
-    assert "a" in b["blocks"]
-    assert a["attention"] == []
-    assert "alice" in b["attention"]
-
-
-def test_on_unblock_unlinks_issues():
-    a = make_issue(id="a", blocked_by=["b"], attention=[], assignee="alice")
-    b = make_issue(id="b", blocks=["a"])
-    kanban.on_unblock(a, b)
-    assert a["blocked_by"] == []
-    assert b["blocks"] == []
-    assert a["attention"] == ["alice"]

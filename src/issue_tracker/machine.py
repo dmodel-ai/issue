@@ -8,11 +8,8 @@ from .utils import die
 
 class StateMachine:
     def __init__(self, workflow: Union[Workflow, ModuleType]):
-        self.terminal = workflow.terminal
-        self.active = workflow.active
         self.transitions = workflow.transitions
-        self.on_block = workflow.on_block
-        self.on_unblock = workflow.on_unblock
+        self.status_colors = workflow.status_colors
 
     def transition(self, issue: dict, name: str, **ctx) -> None:
         t = self.transitions.get(name)

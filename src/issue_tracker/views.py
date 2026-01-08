@@ -1,8 +1,9 @@
 """Views: list, show, inbox, outbox."""
 from .utils import C, ago, user
 from .store import all_issues, fetch, num, refs
-from .state import TERMINAL
+from .state import status_colors
 from .query import filter_issues
+
 
 def cmd_show(args):
     _, i = fetch(args.id)
@@ -18,6 +19,7 @@ def cmd_show(args):
         print("\ncomments:")
         for c in i['comments']:
             print(f"  {c['author']} ({ago(c['time'])}): {c['text']}")
+
 
 def cmd_list(args):
     issues = all_issues()
@@ -49,7 +51,6 @@ def cmd_list(args):
         print("No issues found")
         return
 
-    status_colors = {'draft': 'dim', 'review': 'yellow', 'approved': 'green', 'completed': 'dim', 'abandoned': 'red'}
     for i in issues:
         marks = ""
         if i.get('attention'): marks += f" {C['yellow']}⚠️{C['reset']}"
@@ -59,20 +60,21 @@ def cmd_list(args):
         owner = f"{C['bold']}YOU{C['reset']}" if i['owner'] == user() else f"{C['cyan']}{i['owner']}{C['reset']}"
         print(f"{C['bold']}#{num(i['id']):<3}{C['reset']} {sc}{i['status']:10}{C['reset']} {owner:24} {i['title']}{marks}")
 
+
 def inbox_issues():
     u = user()
     items = [i for i in all_issues()
-             if u in i.get('attention', []) and i['status'] not in TERMINAL
-             and not i.get('blocked_by')]
+             if u in i.get('attention', []) and not i.get('blocked_by')]
     return sorted(items, key=lambda i: (not i.get('blocks'), -i.get('priority', 0), i['id']))
+
 
 def outbox_issues():
     u = user()
     items = [i for i in all_issues()
              if i['owner'] == u and u not in i.get('attention', [])
-             and i['status'] not in TERMINAL
-             and not i.get('blocked_by')]
+             and i.get('attention') and not i.get('blocked_by')]
     return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
+
 
 def line(i, arrow_to=None):
     u = user()
@@ -82,9 +84,9 @@ def line(i, arrow_to=None):
     deps = f"{C['green']}→{refs(i['blocks'])}{C['reset']}" if i.get('blocks') else \
            f"{C['red']}←{refs(i['blocked_by'])}{C['reset']}" if i.get('blocked_by') else f"{C['dim']}-{C['reset']}"
     comment = f'{C["dim"]}"{i["comments"][-1]["text"][:20]}"{C["reset"]}' if i.get('comments') else f'{C["dim"]}-{C["reset"]}'
-    status_c = {'draft': 'dim', 'review': 'yellow', 'approved': 'green'}.get(i['status'], '')
-    sc = C.get(status_c, '')
+    sc = C.get(status_colors.get(i['status'], ''), '')
     print(f"  {C['bold']}#{num(i['id']):<2}{C['reset']} {pri:14} {sc}{i['status']:8}{C['reset']} {arrow:21} [{i['title'][:25]:25}] {deps:20} {comment}")
+
 
 def cmd_inbox(_):
     items = inbox_issues()
@@ -96,6 +98,7 @@ def cmd_inbox(_):
         line(i)
     return True
 
+
 def cmd_outbox(_):
     items = outbox_issues()
     if not items:
@@ -105,6 +108,7 @@ def cmd_outbox(_):
     for i in items:
         line(i, ', '.join(i.get('attention', ['?']))[:12])
     return True
+
 
 def cmd_default(_):
     has = cmd_inbox(None)
