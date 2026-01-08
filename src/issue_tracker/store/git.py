@@ -230,8 +230,8 @@ def _yaml_merge_3way(base: dict, remote: dict, local: dict) -> dict:
         elif l == r:
             merged[key] = l
         else:
-            strategy = MERGE_STRATEGY.get(key, 'local')
-            merged[key] = MERGE_FN.get(strategy, _merge_local)(key, b, r, l)
+            strategy = MERGE_STRATEGY.get(key, 'scalar')
+            merged[key] = MERGE_FN.get(strategy, _merge_scalar)(key, b, r, l)
 
     return merged
 

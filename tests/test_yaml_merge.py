@@ -138,12 +138,19 @@ def test_2way_scalar_no_conflict_if_one_none():
     assert merged2['title'] == 'Local'
 
 
-def test_2way_unknown_field_prefers_local():
-    """Unknown fields prefer local value."""
+def test_2way_unknown_field_conflicts():
+    """Unknown fields now prompt on conflict (safer default)."""
     remote = {'id': 'abc', 'custom': 'remote'}
     local = {'id': 'abc', 'custom': 'local'}
-    merged = _yaml_merge_2way(remote, local)
-    assert merged['custom'] == 'local'
+
+    old_stdin = sys.stdin
+    sys.stdin = FakeTTY('2\n')  # Pick local
+
+    try:
+        merged = _yaml_merge_2way(remote, local)
+        assert merged['custom'] == 'local'
+    finally:
+        sys.stdin = old_stdin
 
 
 def test_2way_scalar_conflict_pick_remote():
