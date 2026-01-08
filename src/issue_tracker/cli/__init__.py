@@ -3,11 +3,11 @@ import argparse
 import inspect
 import sys
 
-from .utils import die
+from ..utils import die
+from ..tui import cmd_tui
+from ..workflows import workflow
 from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_default
 from .commands import cmd_create, cmd_do, cmd_comment, cmd_update, cmd_pick
-from .tui import cmd_tui
-from .state import workflow
 
 
 def make_help(frm, to):

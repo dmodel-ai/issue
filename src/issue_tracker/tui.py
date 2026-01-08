@@ -2,7 +2,7 @@
 import subprocess
 
 from .store import all_issues, load, num, resolve, refs
-from .views import inbox_issues, outbox_issues
+from .cli.views import inbox_issues, outbox_issues
 from .query import filter_issues
 
 def cmd_tui(_):

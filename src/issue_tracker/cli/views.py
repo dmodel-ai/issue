@@ -1,8 +1,8 @@
 """Views: list, show, inbox, outbox."""
-from .utils import C, ago, user
-from .store import all_issues, fetch, num, refs
-from .state import status_colors
-from .query import filter_issues
+from ..utils import C, ago, user
+from ..store import all_issues, fetch, num, refs
+from ..workflows import status_colors
+from ..query import filter_issues
 
 
 def cmd_show(args):

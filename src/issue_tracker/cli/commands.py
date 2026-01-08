@@ -3,10 +3,10 @@ import os, subprocess
 import uuid_utils as uuid
 import yaml
 
-from .utils import DIR, die, edit, now, user
-from .store import load, save, fetch, num, resolve
-from .state import transition, workflow
-from .views import inbox_issues, outbox_issues, all_issues
+from ..utils import DIR, die, edit, now, user
+from ..store import load, save, fetch, num, resolve, all_issues
+from ..workflows import transition, workflow
+from .views import inbox_issues, outbox_issues
 
 
 def cmd_create(args):

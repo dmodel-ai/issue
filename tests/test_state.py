@@ -1,5 +1,5 @@
 import pytest
-from issue_tracker.state import transition, pending
+from issue_tracker.workflows import transition, pending
 
 
 def make_issue(**kw):

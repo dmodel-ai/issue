@@ -1,5 +1,5 @@
 import pytest
-from issue_tracker.machine import StateMachine
+from issue_tracker.workflows import StateMachine
 from issue_tracker.workflows import kanban
 
 m = StateMachine(kanban)
