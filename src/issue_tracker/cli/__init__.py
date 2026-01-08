@@ -6,7 +6,7 @@ import sys
 from ..utils import die
 from ..tui import cmd_tui
 from ..workflows import workflow
-from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_default
+from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_gantt, cmd_default
 from .commands import cmd_create, cmd_do, cmd_comment, cmd_update, cmd_pick
 
 
@@ -27,7 +27,7 @@ def all_states():
 
 
 # Non-transition commands
-STATIC_CMDS = ["new", "show", "list", "edit", "inbox", "outbox", "pick", "tui"]
+STATIC_CMDS = ["new", "show", "list", "edit", "inbox", "outbox", "gantt", "pick", "tui"]
 
 # Build full command list
 CMDS = STATIC_CMDS + list(workflow.transitions.keys())
@@ -86,6 +86,9 @@ def main():
 
     s.add_parser("inbox", help="issues needing your action")
     s.add_parser("outbox", help="your issues waiting on others")
+    c = s.add_parser("gantt", help="show timeline view")
+    c.add_argument("-w", "--weeks", type=int, default=4, help="weeks to show (default: 4)")
+    c.add_argument("-v", "--verbose", action="store_true", help="show sub-bars for each state deadline")
 
     c = s.add_parser("pick", help="fzf picker, outputs issue number")
     c.add_argument("-i", "--inbox", action="store_true", help="pick from inbox")
@@ -129,6 +132,7 @@ def main():
         "edit": cmd_update,
         "inbox": cmd_inbox,
         "outbox": cmd_outbox,
+        "gantt": cmd_gantt,
         "pick": cmd_pick,
         "tui": cmd_tui,
     }

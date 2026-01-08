@@ -168,6 +168,86 @@ def cmd_outbox(_):
     return True
 
 
+def cmd_gantt(args):
+    from datetime import datetime, timedelta
+    issues = [i for i in all_issues() if i.get('due')]
+    if not issues:
+        print(f"{C['dim']}No issues with due dates{C['reset']}")
+        return
+
+    weeks = args.weeks
+    today = datetime.now().date()
+    start_date = today - timedelta(days=today.weekday())  # Start of current week
+    end_date = start_date + timedelta(weeks=weeks)
+    total_days = (end_date - start_date).days
+
+    def parse_date(s):
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return None
+
+    def render_bar(label, start, end, status, is_current=False):
+        sc = C.get(status_colors.get(status, ''), '')
+        marker = C['bold'] + '*' + C['reset'] if is_current else ''
+        print(f"{C['bold'] if is_current else ''}{label:<20}{C['reset']}", end="")
+        for day in range(total_days):
+            d = start_date + timedelta(days=day)
+            char = " "
+            if start and end and start <= d <= end:
+                if d == end:
+                    char = f"{sc}]{C['reset']}"
+                elif d == start:
+                    char = f"{sc}[{C['reset']}"
+                else:
+                    char = f"{sc}={C['reset']}"
+            if d == today and char == " ":
+                char = f"{C['dim']}:{C['reset']}"
+            print(char, end="")
+        print()
+
+    # Header: week labels
+    print(f"{' ' * 20}", end="")
+    d = start_date
+    while d < end_date:
+        print(f"{d.strftime('%m/%d'):<7}", end="")
+        d += timedelta(weeks=1)
+    print()
+
+    # Header: day ticks
+    print(f"{' ' * 20}", end="")
+    for day in range(total_days):
+        d = start_date + timedelta(days=day)
+        if d == today:
+            print(f"{C['bold']}|{C['reset']}", end="")
+        elif d.weekday() == 0:
+            print("|", end="")
+        else:
+            print(".", end="")
+    print()
+
+    for i in issues:
+        alias = i.get('alias') or f"#{num(i['id'])}"
+        due = i.get('due', {})
+        created = parse_date(i['created'])
+
+        if args.verbose:
+            # Show each state deadline as sub-bar
+            sorted_dues = sorted(due.items(), key=lambda x: x[1])
+            prev_end = created
+            for state, date_str in sorted_dues:
+                due_date = parse_date(date_str)
+                is_current = (state == i['status'])
+                label = f"  {state}" if state != sorted_dues[0][0] else alias
+                render_bar(label, prev_end, due_date, state, is_current)
+                prev_end = due_date
+        else:
+            # Single bar from created to current status due
+            due_date_str = due.get(i['status']) or min(due.values()) if due else None
+            due_date = parse_date(due_date_str)
+            render_bar(alias, created, due_date, i['status'], True)
+
+
 def cmd_default(_):
     has_inbox = cmd_inbox(None)
     if has_inbox: print()
