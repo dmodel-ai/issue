@@ -229,26 +229,25 @@ def cmd_gantt(args):
     for i in issues:
         alias = i.get('alias') or f"#{num(i['id'])}"
         due = i.get('due', {})
-        created = parse_date(i['created'])
 
         if args.verbose:
-            # Show each state deadline as sub-bar
-            sorted_dues = sorted(due.items(), key=lambda x: x[1])
-            first_due = parse_date(sorted_dues[0][1]) if sorted_dues else None
-            prev_end = min(created, first_due) if created and first_due else (created or first_due)
-            for state, date_str in sorted_dues:
-                due_date = parse_date(date_str)
+            # Show each state as sub-bar (due date = start of that phase)
+            phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
+            phases = [(s, parse_date(due[s])) for s in phase_order if s in due]
+            if not phases:
+                continue
+            # Render task name header showing full span
+            render_bar(alias, phases[0][1], phases[-1][1], i['status'], True)
+            # Each phase bar: from this phase start to next phase start (or same if last)
+            for idx, (state, start) in enumerate(phases):
+                end = phases[idx + 1][1] if idx + 1 < len(phases) else start
                 is_current = (state == i['status'])
-                label = f"  {state}" if state != sorted_dues[0][0] else alias
-                render_bar(label, prev_end, due_date, state, is_current)
-                prev_end = due_date
+                render_bar(f"  {state}", start, end, state, is_current)
         else:
-            # Single bar from earliest date to current status due
-            due_date_str = due.get(i['status']) or min(due.values()) if due else None
-            due_date = parse_date(due_date_str)
+            # Single bar from earliest due to latest due
             first_due = parse_date(min(due.values())) if due else None
-            bar_start = min(created, first_due) if created and first_due else (created or first_due)
-            render_bar(alias, bar_start, due_date, i['status'], True)
+            last_due = parse_date(max(due.values())) if due else None
+            render_bar(alias, first_due, last_due, i['status'], True)
 
 
 def cmd_default(_):
