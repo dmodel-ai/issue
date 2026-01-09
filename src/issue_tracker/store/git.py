@@ -349,6 +349,7 @@ def _ensure_read_setup():
 
 def _commit_msg(issue, action="Update", old_issue=None):
     """Generate human-friendly commit message."""
+    from . import num  # avoid circular import
     title = issue.get('title', '')[:50]
     ref = issue.get('alias') or f"#{num(issue['id']) or issue['id'][:8]}"
     msg = f"{action}: {title} ({ref})"
@@ -360,6 +361,11 @@ def _commit_msg(issue, action="Update", old_issue=None):
         msg += f" [{old_status} → {new_status}]"
 
     return msg
+
+
+def exists(id):
+    """Check if issue exists."""
+    return _git_exists(f"{id}.yaml")
 
 
 def load(id):
@@ -402,38 +408,6 @@ def index():
     """Get mapping of issue numbers to IDs."""
     files = [f for f in _git_list() if f.endswith('.yaml')]
     return {n+1: f[:-5] for n, f in enumerate(files)}
-
-
-def num(id):
-    """Get issue number for an ID."""
-    return next((n for n, uid in index().items() if uid == id), 0)
-
-
-def resolve(arg):
-    """Resolve issue number, ID, or alias to full ID."""
-    if arg.isdigit():
-        return index().get(int(arg))
-    if len(arg) == 32 and _git_exists(f"{arg}.yaml"):
-        return arg
-    # Check alias
-    for issue in all_issues():
-        if issue.get('alias') == arg:
-            return issue['id']
-    return None
-
-
-def fetch(arg):
-    """Fetch issue by number, ID, or alias. Dies if not found."""
-    id = resolve(arg)
-    issue = load(id) if id else None
-    if not issue:
-        die(f"Issue #{arg} not found")
-    return id, issue
-
-
-def refs(ids):
-    """Format list of IDs as #num references."""
-    return ', '.join(f'#{num(i)}' for i in ids)
 
 
 def read_raw(id):
