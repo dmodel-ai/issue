@@ -322,11 +322,47 @@ def _try_merge():
 
 
 def _try_sync(filename):
-    """Try to sync a file with remote. No-op if offline."""
-    if not _try_fetch():
-        return  # Offline or no remote
+    """Try to sync a file with remote. No-op if no remote configured."""
+    if not _has_remote():
+        return
 
-    _merge_from_remote(filename, _get_merge_base(), "Sync", update_time=True)
+    # Fetch may fail if remote branch doesn't exist yet - that's OK
+    if not _try_fetch():
+        # No remote branch yet, just push
+        if not _try_push():
+            print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
+        return
+
+    # Check relationship with remote
+    local_ref = _git("rev-parse", BRANCH)
+    remote_ref = _git("rev-parse", REMOTE_REF)
+
+    if local_ref == remote_ref:
+        # Already in sync (shouldn't happen since we just wrote, but handle it)
+        return
+
+    if _git("merge-base", "--is-ancestor", remote_ref, local_ref) is not None:
+        # Remote is ancestor of local - we can just push
+        if not _try_push():
+            print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
+        return
+
+    # Diverged - save our content, reset to remote, merge and re-apply
+    local_content = _read_local(filename)
+    base_commit = _get_merge_base()
+
+    # Reset local to remote HEAD
+    _git("update-ref", LOCAL_REF, REMOTE_REF)
+
+    # Now merge our local content on top of remote
+    base = _yaml_load(_read_from_commit(base_commit, filename))
+    remote = _yaml_load(_read_local(filename))  # Now at remote HEAD
+    local = _yaml_load(local_content)
+
+    merged = _yaml_merge_3way(base, remote, local)
+    merged["updated"] = now()
+    content = yaml.dump(merged, default_flow_style=False, sort_keys=False)
+    _write_local(filename, content, _commit_msg(merged, "Sync"))
 
     if not _try_push():
         print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
