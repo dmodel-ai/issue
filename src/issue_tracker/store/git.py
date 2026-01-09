@@ -6,15 +6,15 @@ import threading
 import yaml
 from ..utils import die, now
 
+
+# =============================================================================
+# Configuration & Constants
+# =============================================================================
+
 BRANCH = os.environ.get("ISSUE_BRANCH", "issues")
 REMOTE = os.environ.get("ISSUE_REMOTE", "origin")
 AUTO_SYNC = os.environ.get("ISSUE_SYNC", "1") != "0"
 
-# Background fetch state
-_fetch_thread = None
-_fetch_lock = threading.Lock()
-
-# Field merge strategies
 MERGE_STRATEGY = {
     'id': 'immutable', 'created': 'immutable',
     'updated': 'timestamp',
@@ -28,12 +28,65 @@ MERGE_STRATEGY = {
 }
 
 
+# =============================================================================
+# Low-level git plumbing
+# =============================================================================
+
 def _git(*args, input=None, check=False):
     """Run git command, return stdout or None on failure."""
     r = subprocess.run(["git", *args], capture_output=True, text=True, input=input)
     if check and r.returncode != 0:
         raise subprocess.CalledProcessError(r.returncode, args)
     return r.stdout.strip() if r.returncode == 0 else None
+
+
+def _git_list():
+    """List all files in issues branch."""
+    out = _git("ls-tree", "-r", "--name-only", BRANCH)
+    return sorted(out.split('\n')) if out else []
+
+
+def _git_exists(filename):
+    """Check if file exists in issues branch."""
+    return _git("cat-file", "-e", f"{BRANCH}:{filename}") is not None
+
+
+def _read_from_commit(commit, filename):
+    """Read file from a specific commit. Returns None if not found."""
+    return _git("show", f"{commit}:{filename}") if commit else None
+
+
+def _read_local(filename):
+    """Read file from local issues branch."""
+    return _git("show", f"{BRANCH}:{filename}")
+
+
+def _read_remote(filename):
+    """Read file from origin/issues."""
+    return _git("show", f"{REMOTE}/{BRANCH}:{filename}")
+
+
+def _write_local(filename, content, message):
+    """Write to local issues branch using git plumbing."""
+    _ensure_branch()
+    blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
+    tree_content = _git("ls-tree", BRANCH) or ""
+    lines = [l for l in tree_content.split('\n') if l and not l.endswith(f'\t{filename}')]
+    lines.append(f"100644 blob {blob}\t{filename}")
+    new_tree = _git("mktree", input='\n'.join(lines), check=True)
+    parent = _git("rev-parse", BRANCH)
+    parent_args = ["-p", parent] if parent else []
+    commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
+    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
+
+
+# =============================================================================
+# Branch & remote management
+# =============================================================================
+
+# Background fetch state
+_fetch_thread = None
+_fetch_lock = threading.Lock()
 
 
 def _has_remote():
@@ -68,80 +121,10 @@ def _fetch_background():
     if not AUTO_SYNC or not _has_remote():
         return
     with _fetch_lock:
-        # Don't start another fetch if one is running
         if _fetch_thread is not None and _fetch_thread.is_alive():
             return
         _fetch_thread = threading.Thread(target=_try_fetch, daemon=True)
         _fetch_thread.start()
-
-
-def _try_merge():
-    """Merge remote into local if needed (ff or 3-way)."""
-    if not _has_remote():
-        return
-    remote_ref = f"refs/remotes/{REMOTE}/{BRANCH}"
-    if not _git("rev-parse", "--verify", remote_ref):
-        return
-    # Already in sync
-    if _git("rev-parse", BRANCH) == _git("rev-parse", remote_ref):
-        return
-    # Fast-forward if local is ancestor of remote
-    if _git("merge-base", "--is-ancestor", BRANCH, remote_ref) is not None:
-        _git("update-ref", f"refs/heads/{BRANCH}", remote_ref)
-        return
-    # We're ahead - nothing to merge
-    if _git("merge-base", "--is-ancestor", remote_ref, BRANCH) is not None:
-        return
-    # Diverged - 3-way merge each changed file
-    base_commit = _get_merge_base()
-    remote_diff = _git("diff", "--name-only", base_commit, remote_ref) or ""
-    for filename in [f for f in remote_diff.split('\n') if f.endswith('.yaml')]:
-        _merge_from_remote(filename, base_commit)
-
-
-def _ensure_read_setup():
-    """Ensure local branch exists for reading, fetching from remote if needed."""
-    if _git("rev-parse", "--verify", BRANCH):
-        _try_merge()  # Merge from previous fetch if needed
-        _fetch_background()  # Kick off fetch for next time
-        return
-    # First time: blocking fetch + create tracking branch
-    _try_fetch()
-    _ensure_branch()
-
-
-def _get_merge_base():
-    """Get merge-base commit between local and remote. Returns None if not available."""
-    return _git("merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}")
-
-
-def _read_from_commit(commit, filename):
-    """Read file from a specific commit. Returns None if not found."""
-    return _git("show", f"{commit}:{filename}") if commit else None
-
-
-def _read_local(filename):
-    """Read file from local issues branch."""
-    return _git("show", f"{BRANCH}:{filename}")
-
-
-def _read_remote(filename):
-    """Read file from origin/issues."""
-    return _git("show", f"{REMOTE}/{BRANCH}:{filename}")
-
-
-def _write_local(filename, content, message):
-    """Write to local issues branch using git plumbing."""
-    _ensure_branch()
-    blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
-    tree_content = _git("ls-tree", BRANCH) or ""
-    lines = [l for l in tree_content.split('\n') if l and not l.endswith(f'\t{filename}')]
-    lines.append(f"100644 blob {blob}\t{filename}")
-    new_tree = _git("mktree", input='\n'.join(lines), check=True)
-    parent = _git("rev-parse", BRANCH)
-    parent_args = ["-p", parent] if parent else []
-    commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
-    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
 
 
 def _try_push():
@@ -150,6 +133,15 @@ def _try_push():
         return True  # No remote, consider it "success"
     return _git("push", "-u", REMOTE, BRANCH) is not None
 
+
+def _get_merge_base():
+    """Get merge-base commit between local and remote. Returns None if not available."""
+    return _git("merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}")
+
+
+# =============================================================================
+# YAML merge logic
+# =============================================================================
 
 def _prompt_conflict(field, remote_val, local_val):
     """Prompt user to resolve a conflict. Returns chosen value."""
@@ -177,10 +169,12 @@ def _merge_immutable(key, b, r, l):
     """Keep base value (or remote if no base)."""
     return b if b is not None else r
 
+
 def _merge_timestamp(key, b, r, l):
     """Take the latest timestamp."""
     vals = [v for v in [r, l] if v]
     return max(vals) if vals else b
+
 
 def _merge_scalar(key, b, r, l):
     """Prompt user on conflict, else take non-None value."""
@@ -191,6 +185,7 @@ def _merge_scalar(key, b, r, l):
     if l is None:
         return r
     return _prompt_conflict(key, r, l)
+
 
 def _merge_union(key, b, r, l):
     """Union of lists, respecting additions and removals from base."""
@@ -208,6 +203,7 @@ def _merge_union(key, b, r, l):
             result.append(x)
     return result
 
+
 def _merge_comments(key, b, r, l):
     """Dedupe by (author, time), sort chronologically."""
     seen, unique = set(), []
@@ -217,6 +213,7 @@ def _merge_comments(key, b, r, l):
             seen.add(k)
             unique.append(c)
     return sorted(unique, key=lambda c: c.get('time', ''))
+
 
 def _merge_dict(key, b, r, l):
     """3-way merge for dicts: merge keys, conflict if same key changed differently."""
@@ -236,6 +233,7 @@ def _merge_dict(key, b, r, l):
         else:
             merged[k] = _prompt_conflict(f"{key}.{k}", rv, lv)
     return merged if merged else None
+
 
 def _merge_local(key, b, r, l):
     """Prefer local, fall back to remote."""
@@ -281,6 +279,10 @@ def _yaml_merge_2way(remote: dict, local: dict) -> dict:
     return _yaml_merge_3way({}, remote, local)
 
 
+# =============================================================================
+# Sync operations
+# =============================================================================
+
 def _merge_from_remote(filename, base_commit, action="Merge", update_time=False):
     """3-way merge remote into local for a file and write it."""
     base_content = _read_from_commit(base_commit, filename)
@@ -298,6 +300,30 @@ def _merge_from_remote(filename, base_commit, action="Merge", update_time=False)
     _write_local(filename, content, _commit_msg(merged, action))
 
 
+def _try_merge():
+    """Merge remote into local if needed (ff or 3-way)."""
+    if not _has_remote():
+        return
+    remote_ref = f"refs/remotes/{REMOTE}/{BRANCH}"
+    if not _git("rev-parse", "--verify", remote_ref):
+        return
+    # Already in sync
+    if _git("rev-parse", BRANCH) == _git("rev-parse", remote_ref):
+        return
+    # Fast-forward if local is ancestor of remote
+    if _git("merge-base", "--is-ancestor", BRANCH, remote_ref) is not None:
+        _git("update-ref", f"refs/heads/{BRANCH}", remote_ref)
+        return
+    # We're ahead - nothing to merge
+    if _git("merge-base", "--is-ancestor", remote_ref, BRANCH) is not None:
+        return
+    # Diverged - 3-way merge each changed file
+    base_commit = _get_merge_base()
+    remote_diff = _git("diff", "--name-only", base_commit, remote_ref) or ""
+    for filename in [f for f in remote_diff.split('\n') if f.endswith('.yaml')]:
+        _merge_from_remote(filename, base_commit)
+
+
 def _try_sync(filename):
     """Try to sync a file with remote. No-op if offline."""
     if not _try_fetch():
@@ -309,24 +335,20 @@ def _try_sync(filename):
         print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
 
 
-# Git helpers for listing/existence
+def _ensure_read_setup():
+    """Ensure local branch exists for reading, fetching from remote if needed."""
+    if _git("rev-parse", "--verify", BRANCH):
+        _try_merge()  # Merge from previous fetch if needed
+        _fetch_background()  # Kick off fetch for next time
+        return
+    # First time: blocking fetch + create tracking branch
+    _try_fetch()
+    _ensure_branch()
 
-def _git_list():
-    out = _git("ls-tree", "-r", "--name-only", BRANCH)
-    return sorted(out.split('\n')) if out else []
 
-
-def _git_exists(filename):
-    return _git("cat-file", "-e", f"{BRANCH}:{filename}") is not None
-
-
+# =============================================================================
 # Public API
-
-def load(id):
-    _ensure_read_setup()
-    content = _read_local(f"{id}.yaml")
-    return yaml.safe_load(content) if content else None
-
+# =============================================================================
 
 def _commit_msg(issue, action="Update", old_issue=None):
     """Generate human-friendly commit message."""
@@ -343,7 +365,15 @@ def _commit_msg(issue, action="Update", old_issue=None):
     return msg
 
 
+def load(id):
+    """Load an issue by ID."""
+    _ensure_read_setup()
+    content = _read_local(f"{id}.yaml")
+    return yaml.safe_load(content) if content else None
+
+
 def save(issue):
+    """Save an issue (create or update)."""
     filename = f"{issue['id']}.yaml"
 
     # Fetch first so _ensure_branch() can track remote if it exists
@@ -364,6 +394,7 @@ def save(issue):
 
 
 def all_issues():
+    """Get all issues, sorted by ID."""
     _ensure_read_setup()
     files = [f for f in _git_list() if f.endswith('.yaml')]
     issues = [yaml.safe_load(_read_local(f)) for f in files]
@@ -371,15 +402,18 @@ def all_issues():
 
 
 def index():
+    """Get mapping of issue numbers to IDs."""
     files = [f for f in _git_list() if f.endswith('.yaml')]
     return {n+1: f[:-5] for n, f in enumerate(files)}
 
 
 def num(id):
+    """Get issue number for an ID."""
     return next((n for n, uid in index().items() if uid == id), 0)
 
 
 def resolve(arg):
+    """Resolve issue number, ID, or alias to full ID."""
     if arg.isdigit():
         return index().get(int(arg))
     if len(arg) == 32 and _git_exists(f"{arg}.yaml"):
@@ -392,6 +426,7 @@ def resolve(arg):
 
 
 def fetch(arg):
+    """Fetch issue by number, ID, or alias. Dies if not found."""
     id = resolve(arg)
     issue = load(id) if id else None
     if not issue:
@@ -400,6 +435,7 @@ def fetch(arg):
 
 
 def refs(ids):
+    """Format list of IDs as #num references."""
     return ', '.join(f'#{num(i)}' for i in ids)
 
 
