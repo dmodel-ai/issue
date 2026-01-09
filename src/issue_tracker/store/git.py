@@ -15,6 +15,9 @@ BRANCH = os.environ.get("ISSUE_BRANCH", "issues")
 REMOTE = os.environ.get("ISSUE_REMOTE", "origin")
 AUTO_SYNC = os.environ.get("ISSUE_SYNC", "1") != "0"
 
+LOCAL_REF = f"refs/heads/{BRANCH}"
+REMOTE_REF = f"refs/remotes/{REMOTE}/{BRANCH}"
+
 MERGE_STRATEGY = {
     'id': 'immutable', 'created': 'immutable',
     'updated': 'timestamp',
@@ -77,7 +80,7 @@ def _write_local(filename, content, message):
     parent = _git("rev-parse", BRANCH)
     parent_args = ["-p", parent] if parent else []
     commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
-    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
+    _git("update-ref", LOCAL_REF, commit, check=True)
 
 
 # =============================================================================
@@ -99,20 +102,20 @@ def _ensure_branch():
     if _git("rev-parse", "--verify", BRANCH):
         return
     # Check if remote branch exists (may have been fetched earlier)
-    if _git("rev-parse", "--verify", f"refs/remotes/{REMOTE}/{BRANCH}"):
+    if _git("rev-parse", "--verify", REMOTE_REF):
         _git("branch", "--track", BRANCH, f"{REMOTE}/{BRANCH}", check=True)
         return
     # No remote branch, create orphan
     tree = _git("hash-object", "-t", "tree", "/dev/null", check=True)
     commit = _git("commit-tree", tree, "-m", "Initialize issues", check=True)
-    _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
+    _git("update-ref", LOCAL_REF, commit, check=True)
 
 
 def _try_fetch():
     """Try to fetch remote (blocking). Returns True if online/successful."""
     if not AUTO_SYNC or not _has_remote():
         return False
-    return _git("fetch", REMOTE, f"{BRANCH}:refs/remotes/{REMOTE}/{BRANCH}") is not None
+    return _git("fetch", REMOTE, f"{BRANCH}:{REMOTE_REF}") is not None
 
 
 def _fetch_background():
@@ -136,12 +139,31 @@ def _try_push():
 
 def _get_merge_base():
     """Get merge-base commit between local and remote. Returns None if not available."""
-    return _git("merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}")
+    return _git("merge-base", BRANCH, REMOTE_REF)
 
 
 # =============================================================================
 # YAML merge logic
 # =============================================================================
+
+def _yaml_load(content):
+    """Safe YAML load, returning empty dict for None/empty content."""
+    return yaml.safe_load(content) if content else {}
+
+
+def _pick_3way(b, r, l, on_conflict):
+    """3-way merge decision: returns value or calls on_conflict if both changed differently."""
+    local_changed, remote_changed = (l != b), (r != b)
+    if not local_changed and not remote_changed:
+        return b
+    if local_changed and not remote_changed:
+        return l
+    if not local_changed and remote_changed:
+        return r
+    if l == r:
+        return l
+    return on_conflict(b, r, l)
+
 
 def _prompt_conflict(field, remote_val, local_val):
     """Prompt user to resolve a conflict. Returns chosen value."""
@@ -221,17 +243,7 @@ def _merge_dict(key, b, r, l):
     merged = {}
     for k in set(b) | set(r) | set(l):
         bv, rv, lv = b.get(k), r.get(k), l.get(k)
-        local_changed, remote_changed = (lv != bv), (rv != bv)
-        if not local_changed and not remote_changed:
-            merged[k] = bv
-        elif local_changed and not remote_changed:
-            merged[k] = lv
-        elif not local_changed and remote_changed:
-            merged[k] = rv
-        elif lv == rv:
-            merged[k] = lv
-        else:
-            merged[k] = _prompt_conflict(f"{key}.{k}", rv, lv)
+        merged[k] = _pick_3way(bv, rv, lv, lambda b, r, l: _prompt_conflict(f"{key}.{k}", r, l))
     return merged if merged else None
 
 
@@ -257,19 +269,9 @@ def _yaml_merge_3way(base: dict, remote: dict, local: dict) -> dict:
 
     for key in set(base) | set(remote) | set(local):
         b, r, l = base.get(key), remote.get(key), local.get(key)
-        local_changed, remote_changed = (l != b), (r != b)
-
-        if not local_changed and not remote_changed:
-            merged[key] = b
-        elif local_changed and not remote_changed:
-            merged[key] = l
-        elif not local_changed and remote_changed:
-            merged[key] = r
-        elif l == r:
-            merged[key] = l
-        else:
-            strategy = MERGE_STRATEGY.get(key, 'scalar')
-            merged[key] = MERGE_FN.get(strategy, _merge_scalar)(key, b, r, l)
+        strategy = MERGE_STRATEGY.get(key, 'scalar')
+        merge_fn = MERGE_FN.get(strategy, _merge_scalar)
+        merged[key] = _pick_3way(b, r, l, lambda b, r, l: merge_fn(key, b, r, l))
 
     return merged
 
@@ -285,13 +287,9 @@ def _yaml_merge_2way(remote: dict, local: dict) -> dict:
 
 def _merge_from_remote(filename, base_commit, action="Merge", update_time=False):
     """3-way merge remote into local for a file and write it."""
-    base_content = _read_from_commit(base_commit, filename)
-    remote_content = _read_remote(filename)
-    local_content = _read_local(filename)
-
-    base = yaml.safe_load(base_content) if base_content else {}
-    remote = yaml.safe_load(remote_content) if remote_content else {}
-    local = yaml.safe_load(local_content) if local_content else {}
+    base = _yaml_load(_read_from_commit(base_commit, filename))
+    remote = _yaml_load(_read_remote(filename))
+    local = _yaml_load(_read_local(filename))
 
     merged = _yaml_merge_3way(base, remote, local)
     if update_time:
@@ -304,22 +302,21 @@ def _try_merge():
     """Merge remote into local if needed (ff or 3-way)."""
     if not _has_remote():
         return
-    remote_ref = f"refs/remotes/{REMOTE}/{BRANCH}"
-    if not _git("rev-parse", "--verify", remote_ref):
+    if not _git("rev-parse", "--verify", REMOTE_REF):
         return
     # Already in sync
-    if _git("rev-parse", BRANCH) == _git("rev-parse", remote_ref):
+    if _git("rev-parse", BRANCH) == _git("rev-parse", REMOTE_REF):
         return
     # Fast-forward if local is ancestor of remote
-    if _git("merge-base", "--is-ancestor", BRANCH, remote_ref) is not None:
-        _git("update-ref", f"refs/heads/{BRANCH}", remote_ref)
+    if _git("merge-base", "--is-ancestor", BRANCH, REMOTE_REF) is not None:
+        _git("update-ref", LOCAL_REF, REMOTE_REF)
         return
     # We're ahead - nothing to merge
-    if _git("merge-base", "--is-ancestor", remote_ref, BRANCH) is not None:
+    if _git("merge-base", "--is-ancestor", REMOTE_REF, BRANCH) is not None:
         return
     # Diverged - 3-way merge each changed file
     base_commit = _get_merge_base()
-    remote_diff = _git("diff", "--name-only", base_commit, remote_ref) or ""
+    remote_diff = _git("diff", "--name-only", base_commit, REMOTE_REF) or ""
     for filename in [f for f in remote_diff.split('\n') if f.endswith('.yaml')]:
         _merge_from_remote(filename, base_commit)
 
