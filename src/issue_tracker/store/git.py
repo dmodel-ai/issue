@@ -75,6 +75,16 @@ def _fetch_background():
         _fetch_thread.start()
 
 
+def _ensure_read_setup():
+    """Ensure local branch exists for reading, fetching from remote if needed."""
+    if _git("rev-parse", "--verify", BRANCH):
+        _fetch_background()  # Branch exists, background fetch for next time
+        return
+    # First time: blocking fetch + create tracking branch
+    _try_fetch()
+    _ensure_branch()
+
+
 def _get_merge_base():
     """Get merge-base commit between local and remote. Returns None if not available."""
     return _git("merge-base", BRANCH, f"refs/remotes/{REMOTE}/{BRANCH}")
@@ -285,7 +295,7 @@ def _git_exists(filename):
 # Public API
 
 def load(id):
-    _fetch_background()  # Non-blocking fetch for next read
+    _ensure_read_setup()
     content = _read_local(f"{id}.yaml")
     return yaml.safe_load(content) if content else None
 
@@ -326,7 +336,7 @@ def save(issue):
 
 
 def all_issues():
-    _fetch_background()  # Non-blocking fetch for next read
+    _ensure_read_setup()
     files = [f for f in _git_list() if f.endswith('.yaml')]
     issues = [yaml.safe_load(_read_local(f)) for f in files]
     return sorted([i for i in issues if i], key=lambda i: i['id'])
@@ -367,7 +377,7 @@ def refs(ids):
 
 def read_raw(id):
     """Read raw YAML content for editor."""
-    _fetch_background()  # Non-blocking fetch for next read
+    _ensure_read_setup()
     return _read_local(f"{id}.yaml")
 
 
