@@ -1,4 +1,5 @@
 """Views: list, show, inbox, outbox."""
+from tabulate import tabulate
 from ..utils import ago, user
 from ..store import all_issues, fetch, num, refs
 from ..workflows import status_colors
@@ -77,24 +78,36 @@ def cmd_list(args):
         print("No issues found")
         return
 
-    print(f"{C['dim']}{'ID':<14} {'STATUS':10} {'OWNER':<16} TITLE{C['reset']}")
+    rows = []
+    u = user()
     for i in issues:
         marks = ""
-        if i.get('attention'): marks += f" {C['yellow']}⚠️{C['reset']}"
-        # Show approval progress for issues with reviewers
+        if i.get('attention'):
+            marks += f" {C['yellow']}⚠️{C['reset']}"
         reviewers = i.get('reviewers', [])
         approved = i.get('approved_by', [])
         if reviewers and len(approved) < len(reviewers):
             marks += f" [{len(approved)}/{len(reviewers)}]"
-        if i['blocks']: marks += f" {C['green']}→ {refs(i['blocks'])}{C['reset']}"
-        if i['blocked_by']: marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
+        if i['blocks']:
+            marks += f" {C['green']}→ {refs(i['blocks'])}{C['reset']}"
+        if i['blocked_by']:
+            marks += f" {C['red']}← {refs(i['blocked_by'])}{C['reset']}"
+
         sc = C.get(status_colors.get(i['status'], ''), '')
-        u = user()
         owner_name = "YOU" if i['owner'] == u else i['owner']
         oc = C['bold'] if i['owner'] == u else C['cyan']
         alias = f" ({i['alias']})" if i.get('alias') else ""
         id_alias = f"#{num(i['id'])}{alias}"
-        print(f"{C['bold']}{id_alias:<14}{C['reset']} {sc}{i['status']:10}{C['reset']} {oc}{owner_name:<16}{C['reset']} {i['title']}{marks}")
+
+        rows.append([
+            f"{C['bold']}{id_alias}{C['reset']}",
+            f"{sc}{i['status']}{C['reset']}",
+            f"{oc}{owner_name}{C['reset']}",
+            f"{i['title']}{marks}",
+        ])
+    headers = [f"{C['dim']}ID{C['reset']}", f"{C['dim']}STATUS{C['reset']}",
+               f"{C['dim']}OWNER{C['reset']}", f"{C['dim']}TITLE{C['reset']}"]
+    print(tabulate(rows, headers=headers, tablefmt="plain"))
 
 
 def inbox_issues():
@@ -120,7 +133,14 @@ def outbox_issues():
     return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
 
-def line(i, arrow_to=None):
+def _inbox_headers(who="OWNER"):
+    d, r = C['dim'], C['reset']
+    return [f"{d}ID{r}", f"{d}P{r}", f"{d}STATUS{r}", f"{d}{who}{r}",
+            f"{d}TITLE{r}", f"{d}DEPS{r}", f"{d}COMMENT{r}"]
+
+
+def _make_inbox_row(i, arrow_to=None):
+    """Build a row for inbox/outbox tables."""
     u = user()
     owner_name = "YOU" if i['owner'] == u else i['owner']
     arrow_name = arrow_to or owner_name
@@ -133,11 +153,17 @@ def line(i, arrow_to=None):
     sc = C.get(status_colors.get(i['status'], ''), '')
     alias = f" ({i['alias']})" if i.get('alias') else ""
     id_alias = f"#{num(i['id'])}{alias}"
-    print(f"  {C['bold']}{id_alias:<14}{C['reset']} {pri_color}{pri_str:<2}{C['reset']} {sc}{i['status']:8}{C['reset']} {arrow_color}{arrow_name:<12}{C['reset']} [{i['title'][:25]:25}] {dep_color}{dep_str:<8}{C['reset']} {C['dim']}{cmt}{C['reset']}")
+    r = C['reset']
+    return [
+        f"{C['bold']}{id_alias}{r}",
+        f"{pri_color}{pri_str}{r}",
+        f"{sc}{i['status']}{r}",
+        f"{arrow_color}{arrow_name}{r}",
+        f"[{i['title'][:25]}]",
+        f"{dep_color}{dep_str}{r}",
+        f"{C['dim']}{cmt}{r}",
+    ]
 
-
-def header(who="OWNER"):
-    print(f"  {C['dim']}{'ID':<14} {'P':<2} {'STATUS':8} {who:<12} {'TITLE':25}   {'DEPS':<8} COMMENT{C['reset']}")
 
 def cmd_inbox(_):
     items = inbox_issues()
@@ -145,9 +171,8 @@ def cmd_inbox(_):
         print(f"{C['dim']}Inbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['green']}INBOX{C['reset']} ({len(items)})")
-    header()
-    for i in items:
-        line(i)
+    rows = [_make_inbox_row(i) for i in items]
+    print(tabulate(rows, headers=_inbox_headers(), tablefmt="plain"))
     return True
 
 
@@ -156,9 +181,8 @@ def cmd_cc(_):
     if not items:
         return False
     print(f"{C['bold']}{C['cyan']}CC{C['reset']} ({len(items)})")
-    header()
-    for i in items:
-        line(i)
+    rows = [_make_inbox_row(i) for i in items]
+    print(tabulate(rows, headers=_inbox_headers(), tablefmt="plain"))
     return True
 
 
@@ -168,9 +192,8 @@ def cmd_outbox(_):
         print(f"{C['dim']}Outbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['yellow']}OUTBOX{C['reset']} ({len(items)})")
-    header("WAITING")
-    for i in items:
-        line(i, ', '.join(i.get('attention', ['?']))[:12])
+    rows = [_make_inbox_row(i, ', '.join(i.get('attention', ['?']))[:12]) for i in items]
+    print(tabulate(rows, headers=_inbox_headers("WAITING"), tablefmt="plain"))
     return True
 
 
