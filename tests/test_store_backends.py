@@ -538,6 +538,95 @@ def test_try_sync_diverged_rebases_on_remote(tmp_path, monkeypatch):
     assert local_commit == remote_commit, "Should have pushed successfully"
 
 
+def test_try_sync_diverged_replays_all_local_files(tmp_path, monkeypatch):
+    """Diverged sync replays every locally changed file, not just the current one."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def local_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", local_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create two issues locally
+    git_backend.save({"id": "shared", "title": "Shared", "status": "draft", "owner": "x", "labels": []})
+    git_backend.save({"id": "second", "title": "Second", "status": "draft", "owner": "x"})
+
+    base_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # Remote clone adds a label to the shared issue (remote ahead)
+    other_path = tmp_path / "other"
+    real_run(["git", "clone", str(remote_path), str(other_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "other@test.com"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Other"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:issues"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "checkout", "issues"], cwd=other_path, check=True, capture_output=True)
+
+    def other_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", other_path)
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", other_run)
+    importlib.reload(git_backend)
+
+    issue = git_backend.load("shared")
+    issue["labels"] = ["remote-label"]
+    git_backend.save(issue)
+
+    # Go back to local clone and reset to before the remote label change
+    monkeypatch.setattr(subprocess, "run", local_run)
+    importlib.reload(git_backend)
+    real_run(["git", "update-ref", "refs/heads/issues", base_commit], cwd=local_path, check=True, capture_output=True)
+
+    # Work "offline": add commits for both issues without syncing
+    old_auto = git_backend.AUTO_SYNC
+    git_backend.AUTO_SYNC = False
+    try:
+        shared_local = git_backend.load("shared")
+        shared_local["priority"] = 7
+        git_backend.save(shared_local)
+
+        second_local = git_backend.load("second")
+        second_local["status"] = "pqa"
+        second_local["labels"] = ["local-second"]
+        git_backend.save(second_local)
+    finally:
+        git_backend.AUTO_SYNC = old_auto
+
+    # Back online: edit second issue to trigger _try_sync (which should replay both files)
+    second_final = git_backend.load("second")
+    second_final["attention"] = ["bob"]
+    git_backend.save(second_final)
+
+    shared_final = git_backend.load("shared")
+    assert shared_final.get("labels") == ["remote-label"], "Remote label must be preserved"
+    assert shared_final.get("priority") == 7, "Local priority change should remain"
+
+    second_synced = git_backend.load("second")
+    assert second_synced.get("status") == "pqa"
+    assert second_synced.get("labels") == ["local-second"]
+    assert second_synced.get("attention") == ["bob"]
+
+    # Local and remote should now match
+    local_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+    remote_commit = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"],
+        capture_output=True, text=True
+    ).stdout.split()[0]
+    assert local_commit == remote_commit
+
+
 def test_try_sync_no_remote_configured(tmp_path, monkeypatch):
     """_try_sync does nothing when no remote is configured."""
     real_run = subprocess._original_run

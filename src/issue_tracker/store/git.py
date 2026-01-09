@@ -111,6 +111,14 @@ def _ensure_branch():
     _git("update-ref", LOCAL_REF, commit, check=True)
 
 
+def _ensure_branch_ready():
+    """Ensure the issues branch exists locally, fetching remote if needed."""
+    if _git("rev-parse", "--verify", BRANCH):
+        return
+    _try_fetch()
+    _ensure_branch()
+
+
 def _try_fetch():
     """Try to fetch remote (blocking). Returns True if online/successful."""
     if not AUTO_SYNC or not _has_remote():
@@ -316,6 +324,9 @@ def _try_merge():
         return
     # Diverged - 3-way merge each changed file
     base_commit = _get_merge_base()
+    if not base_commit:
+        _git("update-ref", LOCAL_REF, REMOTE_REF)
+        return
     remote_diff = _git("diff", "--name-only", base_commit, REMOTE_REF) or ""
     for filename in [f for f in remote_diff.split('\n') if f.endswith('.yaml')]:
         _merge_from_remote(filename, base_commit)
@@ -347,22 +358,25 @@ def _try_sync(filename):
             print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
         return
 
-    # Diverged - save our content, reset to remote, merge and re-apply
-    local_content = _read_local(filename)
+    # Diverged - preserve every local YAML change, then replay them on top of remote
     base_commit = _get_merge_base()
+    local_diff = _git("diff", "--name-only", remote_ref, local_ref) or ""
+    local_files = [f for f in local_diff.split('\n') if f.endswith('.yaml')]
+    local_snapshots = {f: _read_local(f) for f in local_files}
 
     # Reset local to remote HEAD
     _git("update-ref", LOCAL_REF, REMOTE_REF)
 
-    # Now merge our local content on top of remote
-    base = _yaml_load(_read_from_commit(base_commit, filename))
-    remote = _yaml_load(_read_local(filename))  # Now at remote HEAD
-    local = _yaml_load(local_content)
+    for changed in local_files:
+        base = _yaml_load(_read_from_commit(base_commit, changed))
+        remote = _yaml_load(_read_local(changed))  # Now at remote HEAD
+        local = _yaml_load(local_snapshots.get(changed))
 
-    merged = _yaml_merge_3way(base, remote, local)
-    merged["updated"] = now()
-    content = yaml.dump(merged, default_flow_style=False, sort_keys=False)
-    _write_local(filename, content, _commit_msg(merged, "Sync"))
+        merged = _yaml_merge_3way(base, remote, local)
+        if changed == filename:
+            merged["updated"] = now()
+        content = yaml.dump(merged, default_flow_style=False, sort_keys=False)
+        _write_local(changed, content, _commit_msg(merged, "Sync"))
 
     if not _try_push():
         print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)
@@ -401,6 +415,7 @@ def _commit_msg(issue, action="Update", old_issue=None):
 
 def exists(id):
     """Check if issue exists."""
+    _ensure_branch_ready()
     return _git_exists(f"{id}.yaml")
 
 
@@ -442,6 +457,7 @@ def all_issues():
 
 def index():
     """Get mapping of issue numbers to IDs."""
+    _ensure_branch_ready()
     files = [f for f in _git_list() if f.endswith('.yaml')]
     return {n+1: f[:-5] for n, f in enumerate(files)}
 
@@ -453,7 +469,11 @@ def read_raw(id):
 
 
 def write_raw(id, content):
-    """Write raw YAML content from editor."""
+    """Write raw YAML content from editor.
+
+    Caller must ensure `_ensure_read_setup()` or an equivalent fetch happened
+    beforehand so the local branch reflects the remote state before editing.
+    """
     filename = f"{id}.yaml"
     issue = yaml.safe_load(content) or {}
 
