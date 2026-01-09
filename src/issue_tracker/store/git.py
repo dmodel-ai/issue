@@ -42,9 +42,14 @@ def _has_remote():
 
 
 def _ensure_branch():
-    """Create orphan branch if it doesn't exist."""
+    """Create local branch if it doesn't exist, tracking remote if available."""
     if _git("rev-parse", "--verify", BRANCH):
         return
+    # Check if remote branch exists (may have been fetched earlier)
+    if _git("rev-parse", "--verify", f"refs/remotes/{REMOTE}/{BRANCH}"):
+        _git("branch", "--track", BRANCH, f"{REMOTE}/{BRANCH}", check=True)
+        return
+    # No remote branch, create orphan
     tree = _git("hash-object", "-t", "tree", "/dev/null", check=True)
     commit = _git("commit-tree", tree, "-m", "Initialize issues", check=True)
     _git("update-ref", f"refs/heads/{BRANCH}", commit, check=True)
@@ -108,7 +113,7 @@ def _try_push():
     """Try to push local to remote. Returns True on success."""
     if not AUTO_SYNC or not _has_remote():
         return True  # No remote, consider it "success"
-    return _git("push", REMOTE, BRANCH) is not None
+    return _git("push", "-u", REMOTE, BRANCH) is not None
 
 
 def _prompt_conflict(field, remote_val, local_val):
@@ -302,6 +307,9 @@ def _commit_msg(issue, action="Update", old_issue=None):
 
 def save(issue):
     filename = f"{issue['id']}.yaml"
+
+    # Fetch first so _ensure_branch() can track remote if it exists
+    _try_fetch()
 
     # Read previous version to detect changes
     old_content = _read_local(filename)
