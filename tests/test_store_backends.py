@@ -403,3 +403,195 @@ def test_ensure_read_setup_triggers_merge(tmp_path, monkeypatch):
 
     assert after == remote_commit, "Read should have triggered merge"
     assert len(issues) == 2
+
+
+def test_try_sync_creates_remote_branch(tmp_path, monkeypatch):
+    """_try_sync creates remote branch when it doesn't exist."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Save should create local branch and push to remote
+    git_backend.save({"id": "newremote", "title": "New Remote", "status": "draft", "owner": "x"})
+
+    # Verify remote branch was created
+    remote_refs = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"],
+        capture_output=True, text=True
+    ).stdout.strip()
+    assert remote_refs, "Remote issues branch should exist after save"
+
+
+def test_try_sync_pushes_when_ahead(tmp_path, monkeypatch):
+    """_try_sync pushes when local is ahead of remote."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # First save creates and pushes
+    git_backend.save({"id": "ahead1", "title": "Ahead 1", "status": "draft", "owner": "x"})
+
+    first_remote = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"],
+        capture_output=True, text=True
+    ).stdout.split()[0]
+
+    # Second save should push cleanly (local ahead of remote)
+    git_backend.save({"id": "ahead2", "title": "Ahead 2", "status": "draft", "owner": "x"})
+
+    second_remote = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"],
+        capture_output=True, text=True
+    ).stdout.split()[0]
+
+    assert first_remote != second_remote, "Remote should have advanced"
+
+    local_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+    assert local_commit == second_remote, "Remote should match local"
+
+
+def test_try_sync_diverged_rebases_on_remote(tmp_path, monkeypatch):
+    """_try_sync rebases local changes on top of remote when diverged."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create initial issue
+    git_backend.save({"id": "diverge", "title": "Diverge Test", "status": "draft", "owner": "x"})
+
+    base_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # Simulate concurrent edit from another clone
+    other_path = tmp_path / "other"
+    real_run(["git", "clone", str(remote_path), str(other_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "other@test.com"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Other"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:issues"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "checkout", "issues"], cwd=other_path, check=True, capture_output=True)
+
+    # Other clone adds a label
+    def other_patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", other_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", other_patched_run)
+    importlib.reload(git_backend)
+
+    issue = git_backend.load("diverge")
+    issue["labels"] = ["from-other"]
+    git_backend.save(issue)
+
+    # Reset local to base and make local edit
+    monkeypatch.setattr(subprocess, "run", patched_run)
+    importlib.reload(git_backend)
+    real_run(["git", "update-ref", "refs/heads/issues", base_commit], cwd=local_path, check=True, capture_output=True)
+
+    # Local adds priority (different field)
+    issue = git_backend.load("diverge")
+    issue["priority"] = 10
+    git_backend.save(issue)  # This triggers _try_sync with diverged branches
+
+    # Verify both changes are present
+    final_issue = git_backend.load("diverge")
+    assert final_issue.get("labels") == ["from-other"], "Remote change should be preserved"
+    assert final_issue.get("priority") == 10, "Local change should be preserved"
+
+    # Verify push succeeded (local and remote in sync)
+    local_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+    remote_commit = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"],
+        capture_output=True, text=True
+    ).stdout.split()[0]
+    assert local_commit == remote_commit, "Should have pushed successfully"
+
+
+def test_try_sync_no_remote_configured(tmp_path, monkeypatch):
+    """_try_sync does nothing when no remote is configured."""
+    real_run = subprocess._original_run
+
+    # Create local repo with no remote
+    local_path = tmp_path / "local"
+    real_run(["git", "init", str(local_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "test@test.com"], cwd=local_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Test"], cwd=local_path, check=True, capture_output=True)
+    real_run(["git", "commit", "--allow-empty", "-m", "init"], cwd=local_path, check=True, capture_output=True)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Save should work locally without errors
+    git_backend.save({"id": "noremote", "title": "No Remote", "status": "draft", "owner": "x"})
+
+    # Verify issue saved locally
+    issue = git_backend.load("noremote")
+    assert issue["title"] == "No Remote"
+
+
+def test_try_sync_offline_warns(tmp_path, monkeypatch, capsys):
+    """_try_sync warns when push fails due to network issues."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create initial issue
+    git_backend.save({"id": "offline", "title": "Offline Test", "status": "draft", "owner": "x"})
+
+    # Break the remote
+    import shutil
+    shutil.rmtree(remote_path)
+
+    # Try to save - should warn but not crash
+    git_backend.save({"id": "offline2", "title": "Offline 2", "status": "draft", "owner": "x"})
+
+    captured = capsys.readouterr()
+    assert "Warning" in captured.err
+    assert "push failed" in captured.err
