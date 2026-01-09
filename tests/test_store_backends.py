@@ -160,3 +160,246 @@ def test_read_raw_write_raw_file(tmp_path, monkeypatch):
     # Verify change
     updated = file_backend.read_raw("rawtest")
     assert "Edited Test" in updated
+
+
+def setup_git_repo_with_remote(tmp_path):
+    """Helper to set up a git repo with a bare remote. Uses real subprocess to avoid conftest patch."""
+    real_run = subprocess._original_run
+
+    remote_path = tmp_path / "remote.git"
+    local_path = tmp_path / "local"
+
+    # Create bare remote
+    real_run(["git", "init", "--bare", str(remote_path)], check=True, capture_output=True)
+
+    # Create local repo
+    real_run(["git", "clone", str(remote_path), str(local_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "test@test.com"], cwd=local_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Test"], cwd=local_path, check=True, capture_output=True)
+    # Create initial commit
+    real_run(["git", "commit", "--allow-empty", "-m", "init"], cwd=local_path, capture_output=True, check=True)
+
+    return local_path, remote_path
+
+
+def test_try_merge_fast_forward(tmp_path, monkeypatch):
+    """_try_merge fast-forwards local when behind remote."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create issue on local
+    git_backend.save({"id": "fftest", "title": "FF Test", "status": "draft", "owner": "x"})
+
+    # Manually push the issues branch to remote (since _try_sync needs remote branch to exist)
+    real_run(["git", "push", "-u", "origin", "issues"], cwd=local_path, check=True, capture_output=True)
+
+    local_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # Simulate remote advancing: clone to another dir, make change, push
+    other_path = tmp_path / "other"
+    real_run(["git", "clone", str(remote_path), str(other_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "other@test.com"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Other"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:issues"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "checkout", "issues"], cwd=other_path, check=True, capture_output=True)
+
+    # Create another issue from other clone
+    def other_patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", other_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", other_patched_run)
+    importlib.reload(git_backend)
+    git_backend.save({"id": "fftest2", "title": "FF Test 2", "status": "draft", "owner": "y"})
+
+    # Verify push worked (remote branch exists now, so _try_sync should push)
+    remote_refs = real_run(
+        ["git", "ls-remote", str(remote_path), "refs/heads/issues"], capture_output=True, text=True
+    ).stdout.strip()
+    assert remote_refs, "Remote should have issues branch after save"
+
+    # Restore local patching
+    monkeypatch.setattr(subprocess, "run", patched_run)
+    importlib.reload(git_backend)
+
+    # Reset local to before remote changes
+    real_run(["git", "update-ref", "refs/heads/issues", local_commit], cwd=local_path, check=True, capture_output=True)
+
+    # Fetch remote changes
+    real_run(["git", "fetch", "origin", "issues:refs/remotes/origin/issues"], cwd=local_path, check=True, capture_output=True)
+
+    before = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+    remote_result = real_run(
+        ["git", "rev-parse", "origin/issues"], cwd=local_path, capture_output=True, text=True
+    )
+    assert remote_result.returncode == 0, f"Failed to resolve origin/issues: {remote_result.stderr}"
+    remote = remote_result.stdout.strip()
+
+    assert before == local_commit
+    assert before != remote
+
+    # Call _try_merge
+    git_backend._try_merge()
+
+    after = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert after == remote, "Local should have fast-forwarded to remote"
+
+
+def test_try_merge_already_in_sync(tmp_path, monkeypatch):
+    """_try_merge does nothing when already in sync."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    git_backend.save({"id": "synctest", "title": "Sync Test", "status": "draft", "owner": "x"})
+
+    # Push to remote and fetch so origin/issues exists and matches local
+    real_run(["git", "push", "-u", "origin", "issues"], cwd=local_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:refs/remotes/origin/issues"], cwd=local_path, capture_output=True)
+
+    before = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    git_backend._try_merge()
+
+    after = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert before == after
+
+
+def test_try_merge_local_ahead(tmp_path, monkeypatch):
+    """_try_merge does nothing when local is ahead of remote."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create issue and push
+    git_backend.save({"id": "aheadtest", "title": "Ahead Test", "status": "draft", "owner": "x"})
+    real_run(["git", "push", "-u", "origin", "issues"], cwd=local_path, check=True, capture_output=True)
+
+    pushed_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # Create another local commit without pushing (local ahead)
+    monkeypatch.setenv("ISSUE_SYNC", "0")  # Disable auto-sync for this save
+    importlib.reload(git_backend)
+    git_backend.save({"id": "aheadtest2", "title": "Ahead Test 2", "status": "draft", "owner": "x"})
+
+    # Fetch to make sure origin/issues exists
+    real_run(["git", "fetch", "origin", "issues:refs/remotes/origin/issues"], cwd=local_path, capture_output=True)
+
+    before = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert before != pushed_commit  # We're ahead
+
+    monkeypatch.delenv("ISSUE_SYNC", raising=False)
+    importlib.reload(git_backend)
+
+    git_backend._try_merge()
+
+    after = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert before == after, "Local ahead should not change"
+
+
+def test_ensure_read_setup_triggers_merge(tmp_path, monkeypatch):
+    """_ensure_read_setup triggers merge from previous fetch."""
+    real_run = subprocess._original_run
+    local_path, remote_path = setup_git_repo_with_remote(tmp_path)
+
+    def patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", local_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", patched_run)
+
+    import importlib
+    import issue_tracker.store.git as git_backend
+    importlib.reload(git_backend)
+
+    # Create initial issue and push
+    git_backend.save({"id": "readtest", "title": "Read Test", "status": "draft", "owner": "x"})
+    real_run(["git", "push", "-u", "origin", "issues"], cwd=local_path, check=True, capture_output=True)
+
+    local_commit = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # Simulate remote change via other clone
+    other_path = tmp_path / "other"
+    real_run(["git", "clone", str(remote_path), str(other_path)], check=True, capture_output=True)
+    real_run(["git", "config", "user.email", "other@test.com"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "config", "user.name", "Other"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:issues"], cwd=other_path, check=True, capture_output=True)
+    real_run(["git", "checkout", "issues"], cwd=other_path, check=True, capture_output=True)
+
+    def other_patched_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd[0] == "git":
+            kwargs.setdefault("cwd", other_path)
+        return real_run(cmd, *args, **kwargs)
+    monkeypatch.setattr(subprocess, "run", other_patched_run)
+    importlib.reload(git_backend)
+    git_backend.save({"id": "readtest2", "title": "Read Test 2", "status": "draft", "owner": "y"})
+
+    # Reset local and fetch
+    monkeypatch.setattr(subprocess, "run", patched_run)
+    importlib.reload(git_backend)
+    real_run(["git", "update-ref", "refs/heads/issues", local_commit], cwd=local_path, check=True, capture_output=True)
+    real_run(["git", "fetch", "origin", "issues:refs/remotes/origin/issues"], cwd=local_path, check=True, capture_output=True)
+
+    remote_commit = real_run(
+        ["git", "rev-parse", "origin/issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    # all_issues() should trigger merge via _ensure_read_setup
+    issues = git_backend.all_issues()
+
+    after = real_run(
+        ["git", "rev-parse", "issues"], cwd=local_path, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert after == remote_commit, "Read should have triggered merge"
+    assert len(issues) == 2

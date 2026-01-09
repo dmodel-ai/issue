@@ -75,10 +75,35 @@ def _fetch_background():
         _fetch_thread.start()
 
 
+def _try_merge():
+    """Merge remote into local if needed (ff or 3-way)."""
+    if not _has_remote():
+        return
+    remote_ref = f"refs/remotes/{REMOTE}/{BRANCH}"
+    if not _git("rev-parse", "--verify", remote_ref):
+        return
+    # Already in sync
+    if _git("rev-parse", BRANCH) == _git("rev-parse", remote_ref):
+        return
+    # Fast-forward if local is ancestor of remote
+    if _git("merge-base", "--is-ancestor", BRANCH, remote_ref) is not None:
+        _git("update-ref", f"refs/heads/{BRANCH}", remote_ref)
+        return
+    # We're ahead - nothing to merge
+    if _git("merge-base", "--is-ancestor", remote_ref, BRANCH) is not None:
+        return
+    # Diverged - 3-way merge each changed file
+    base_commit = _get_merge_base()
+    remote_diff = _git("diff", "--name-only", base_commit, remote_ref) or ""
+    for filename in [f for f in remote_diff.split('\n') if f.endswith('.yaml')]:
+        _merge_from_remote(filename, base_commit)
+
+
 def _ensure_read_setup():
     """Ensure local branch exists for reading, fetching from remote if needed."""
     if _git("rev-parse", "--verify", BRANCH):
-        _fetch_background()  # Branch exists, background fetch for next time
+        _try_merge()  # Merge from previous fetch if needed
+        _fetch_background()  # Kick off fetch for next time
         return
     # First time: blocking fetch + create tracking branch
     _try_fetch()
@@ -256,12 +281,8 @@ def _yaml_merge_2way(remote: dict, local: dict) -> dict:
     return _yaml_merge_3way({}, remote, local)
 
 
-def _try_sync(filename):
-    """Try to sync a file with remote. No-op if offline."""
-    if not _try_fetch():
-        return  # Offline or no remote
-
-    base_commit = _get_merge_base()
+def _merge_from_remote(filename, base_commit, action="Merge", update_time=False):
+    """3-way merge remote into local for a file and write it."""
     base_content = _read_from_commit(base_commit, filename)
     remote_content = _read_remote(filename)
     local_content = _read_local(filename)
@@ -270,12 +291,19 @@ def _try_sync(filename):
     remote = yaml.safe_load(remote_content) if remote_content else {}
     local = yaml.safe_load(local_content) if local_content else {}
 
-    # 3-way merge
     merged = _yaml_merge_3way(base, remote, local)
-    merged["updated"] = now()
-
+    if update_time:
+        merged["updated"] = now()
     content = yaml.dump(merged, default_flow_style=False, sort_keys=False)
-    _write_local(filename, content, _commit_msg(merged, "Sync"))
+    _write_local(filename, content, _commit_msg(merged, action))
+
+
+def _try_sync(filename):
+    """Try to sync a file with remote. No-op if offline."""
+    if not _try_fetch():
+        return  # Offline or no remote
+
+    _merge_from_remote(filename, _get_merge_base(), "Sync", update_time=True)
 
     if not _try_push():
         print(f"Warning: Saved locally, push failed. Re-run to sync.", file=sys.stderr)

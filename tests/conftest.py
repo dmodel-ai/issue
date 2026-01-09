@@ -2,6 +2,9 @@ import pytest
 import subprocess
 import issue_tracker.utils as utils
 
+# Save original run for tests that need it
+subprocess._original_run = subprocess.run
+
 @pytest.fixture(autouse=True)
 def isolate_issues(tmp_path, monkeypatch):
     """Use a temp git repo with unique branch for all tests."""
