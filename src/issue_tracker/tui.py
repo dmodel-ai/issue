@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from .store import all_issues, load, num, resolve, refs
 from .cli.views import inbox_issues, outbox_issues
-from .workflows import status_colors
+from .workflows import status_colors, DONE_STATE, phase_order
 from .query import filter_issues, parse_query
 
 # Owner -> Rich color mapping
@@ -186,8 +186,6 @@ def cmd_tui(_):
             end_date = start_date + timedelta(weeks=weeks)
             total_days = (end_date - start_date).days
             days_per_week = 7
-            phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
-
             def parse_date(s):
                 try:
                     return datetime.strptime(s[:10], "%Y-%m-%d").date()
@@ -239,13 +237,13 @@ def cmd_tui(_):
                 reviewer = reviewers[0] if reviewers else owner
                 current_idx = phase_order.index(i['status']) if i['status'] in phase_order else 0
 
-                phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != 'done']
-                done_date = parse_date(due.get('done', ''))
+                phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != DONE_STATE]
+                done_date = parse_date(due.get(DONE_STATE, ''))
                 if not phases:
                     continue
 
                 any_behind = any(today > start and phase_order.index(s) > current_idx for s, start in phases)
-                is_done = i['status'] == 'done'
+                is_done = i['status'] == DONE_STATE
                 header_end = done_date or phases[-1][1]
 
                 # Header row

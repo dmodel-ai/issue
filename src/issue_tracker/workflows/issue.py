@@ -1,14 +1,17 @@
 """Issue review workflow: draft → review → approved → done."""
 from ..utils import die, now
 
-terminal = {"done", "abandoned"}
-active = {"draft", "review", "approved"}
+INITIAL_STATE = "draft"
+DONE_STATE = "done"
+
+terminal = {DONE_STATE, "abandoned"}
+active = {INITIAL_STATE, "review", "approved"}
 
 status_colors = {
-    "draft": "dim",
+    INITIAL_STATE: "dim",
     "review": "yellow",
     "approved": "green",
-    "done": "dim",
+    DONE_STATE: "dim",
     "abandoned": "red",
 }
 
@@ -74,10 +77,10 @@ def on_unblock(issue, blocker, **_):
 
 
 transitions = {
-    "review":   ({"draft"},         "review",    on_submit),
+    "review":   ({INITIAL_STATE},   "review",    on_submit),
     "comment":  (active | terminal, None,        on_comment),
     "approve":  ({"review"},        "approved",  on_approve, all_approved),
-    "done":     (active,            "done",      clear_attention),
+    "done":     (active,            DONE_STATE,  clear_attention),
     "abandon":  (active,            "abandoned", clear_attention),
     "block":    (active,            None,        on_block),
     "unblock":  (active,            None,        on_unblock),

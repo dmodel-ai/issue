@@ -1,15 +1,18 @@
 """Kanban workflow: backlog → ready → in_progress → done."""
 from ..utils import now
 
-terminal = {"done", "wontfix"}
-active = {"backlog", "ready", "in_progress", "blocked"}
+INITIAL_STATE = "backlog"
+DONE_STATE = "done"
+
+terminal = {DONE_STATE, "wontfix"}
+active = {INITIAL_STATE, "ready", "in_progress", "blocked"}
 
 status_colors = {
-    "backlog": "dim",
+    INITIAL_STATE: "dim",
     "ready": "cyan",
     "in_progress": "yellow",
     "blocked": "red",
-    "done": "green",
+    DONE_STATE: "green",
     "wontfix": "dim",
 }
 
@@ -43,11 +46,11 @@ def on_done(issue, **_):
 
 
 transitions = {
-    "groom":   ({"backlog"},     "ready",       on_ready),
+    "groom":   ({INITIAL_STATE}, "ready",       on_ready),
     "start":   ({"ready"},       "in_progress", on_start),
     "block":   ({"in_progress"}, "blocked",     on_block_ext),
     "unblock": ({"blocked"},     "in_progress", on_unblock_ext),
-    "finish":  ({"in_progress"}, "done",        on_done),
+    "finish":  ({"in_progress"}, DONE_STATE,    on_done),
     "wontfix": (active,          "wontfix",     on_done),
-    "reopen":  (terminal,        "backlog",     on_ready),
+    "reopen":  (terminal,        INITIAL_STATE, on_ready),
 }

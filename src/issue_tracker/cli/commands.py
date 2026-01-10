@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..utils import die, edit, now, user
 from ..store import load, save, fetch, num, resolve, all_issues, read_raw, write_raw
-from ..workflows import transition, workflow
+from ..workflows import transition, workflow, INITIAL_STATE, DONE_STATE
 from .views import inbox_issues, outbox_issues
 
 
@@ -95,7 +95,7 @@ Blocks:
     issue = {
         "id": uuid.uuid7().hex,
         "title": title,
-        "status": "draft",
+        "status": INITIAL_STATE,
         "owner": owner,
         "priority": priority,
         "reviewers": reviewers,
@@ -219,10 +219,10 @@ def cmd_update(args):
         return
 
     issue = load(id)
-    status = args.status or ("done" if args.done else "abandoned" if args.abandon else None)
+    status = args.status or (DONE_STATE if args.done else "abandoned" if args.abandon else None)
     if status:
         if status in workflow.terminal:
-            action = "done" if status == "done" else "abandon"
+            action = "done" if status == DONE_STATE else "abandon"
             if action in workflow.transitions:
                 transition(issue, action)
             else:

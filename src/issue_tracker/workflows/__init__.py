@@ -51,3 +51,47 @@ _machine = StateMachine(workflow)
 transition = _machine.transition
 status_colors = workflow.status_colors
 pending = getattr(workflow, 'pending', None)
+
+INITIAL_STATE = getattr(workflow, "INITIAL_STATE", None)
+DONE_STATE = getattr(workflow, "DONE_STATE", None)
+
+
+def _phase_graph(transitions: Dict[str, Transition]) -> Dict[str, Set[str]]:
+    graph: Dict[str, Set[str]] = {}
+    for frm, to, *_ in transitions.values():
+        if not to:
+            continue
+        for state in frm:
+            graph.setdefault(state, set()).add(to)
+    return graph
+
+
+def _phase_order(transitions: Dict[str, Transition], initial: Optional[str], done: Optional[str]) -> list[str]:
+    if not initial or not done:
+        return []
+    if initial == done:
+        return [done]
+
+    graph = _phase_graph(transitions)
+
+    def dfs(node: str, visited: Set[str]) -> Optional[list[str]]:
+        if node == done:
+            return [node]
+        visited.add(node)
+        best = None
+        for nxt in sorted(graph.get(node, [])):
+            if nxt in visited:
+                continue
+            path = dfs(nxt, visited)
+            if path:
+                candidate = [node] + path
+                if best is None or len(candidate) > len(best):
+                    best = candidate
+        visited.remove(node)
+        return best
+
+    return dfs(initial, set()) or [initial]
+
+
+# Mainline states for gantt (longest acyclic path from initial to done).
+phase_order = _phase_order(workflow.transitions, INITIAL_STATE, DONE_STATE)

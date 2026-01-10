@@ -2,7 +2,7 @@
 from tabulate import tabulate
 from ..utils import ago, user
 from ..store import all_issues, fetch, num, refs
-from ..workflows import status_colors
+from ..workflows import status_colors, DONE_STATE, phase_order
 from ..query import filter_issues
 
 C = {
@@ -140,7 +140,7 @@ def outbox_issues():
 def done_issues():
     u = user()
     items = [i for i in all_issues()
-             if i['status'] == 'done'
+             if i['status'] == DONE_STATE
              and (i['owner'] == u or u in i.get('reviewers', []))]
     return sorted(items, key=lambda i: i['updated'], reverse=True)
 
@@ -290,19 +290,18 @@ def cmd_gantt(args):
         alias = i.get('alias') or f"#{num(i['id'])}"
         due = i.get('due', {})
         owner = i.get('owner', '')
-        phase_order = ['draft', 'pqa', 'augmenting', 'iqa', 'done']
         current_idx = phase_order.index(i['status']) if i['status'] in phase_order else 0
 
         if args.verbose:
             # Show each state as sub-bar (due date = start of that phase), skip 'done'
-            phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != 'done']
-            done_date = parse_date(due.get('done', ''))
+            phases = [(s, parse_date(due[s])) for s in phase_order if s in due and s != DONE_STATE]
+            done_date = parse_date(due.get(DONE_STATE, ''))
             if not phases:
                 continue
             # Header bar: behind if any phase should have started but hasn't
             any_behind = any(today > start and phase_order.index(s) > current_idx
                             for s, start in phases)
-            is_done = i['status'] == 'done'
+            is_done = i['status'] == DONE_STATE
             header_end = done_date or phases[-1][1]
             render_bar(alias, phases[0][1], header_end, owner, any_behind, is_done)
             # Each phase bar (reviewer phases use reviewer color)
@@ -323,7 +322,7 @@ def cmd_gantt(args):
             # Single bar from earliest due to latest due
             first_due = parse_date(min(due.values())) if due else None
             last_due = parse_date(max(due.values())) if due else None
-            is_done = i['status'] == 'done'
+            is_done = i['status'] == DONE_STATE
             behind = last_due and today > last_due and not is_done
             render_bar(alias, first_due, last_due, owner, behind, is_done)
 
