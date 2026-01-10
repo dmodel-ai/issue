@@ -82,7 +82,7 @@ def cmd_list(args):
     u = user()
     for i in issues:
         marks = ""
-        if i.get('attention'):
+        if u in i.get('attention', []):
             marks += f" {C['yellow']}⚠️{C['reset']}"
         reviewers = i.get('reviewers', [])
         approved = i.get('approved_by', [])
