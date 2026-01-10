@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from .store import all_issues, load, num, resolve, refs
 from .cli.views import inbox_issues, outbox_issues
 from .workflows import status_colors
-from .query import filter_issues
+from .query import filter_issues, parse_query
 
 # Owner -> Rich color mapping
 OWNER_COLORS = {
@@ -151,9 +151,31 @@ def cmd_tui(_):
             table.clear(columns=True)
             table.cursor_type = "row"
 
-            issues = [i for i in all_issues() if i.get('due')]
+            # Parse query to separate phase filter from issue filter
+            phase_filter = ""
+            issue_query = self.filter_text
             if self.filter_text:
-                issues = filter_issues(issues, self.filter_text)
+                terms = parse_query(self.filter_text)
+                phase_terms = [t for t in terms if t.field == 'phase']
+                other_terms = [t for t in terms if t.field != 'phase']
+                if phase_terms:
+                    phase_filter = phase_terms[0].value
+                if other_terms:
+                    # Rebuild query string without phase terms
+                    parts = []
+                    for t in other_terms:
+                        prefix = '-' if t.negate else ''
+                        if t.field:
+                            parts.append(f"{prefix}{t.field}:{t.value}")
+                        else:
+                            parts.append(f"{prefix}{t.value}")
+                    issue_query = ' '.join(parts)
+                else:
+                    issue_query = ""
+
+            issues = [i for i in all_issues() if i.get('due')]
+            if issue_query:
+                issues = filter_issues(issues, issue_query)
             if not issues:
                 self.query_one("#filter", Static).update("[bold]gantt[/] (no issues with due dates)")
                 return
@@ -232,12 +254,9 @@ def cmd_tui(_):
 
                 # Phase breakdown rows in verbose mode
                 if self.gantt_verbose:
-                    # Filter phases if filter_text matches a phase name
-                    phase_filter = self.filter_text.lower() if self.filter_text else ""
                     for idx, (state, phase_start) in enumerate(phases):
-                        if phase_filter and phase_filter in ['draft', 'pqa', 'augmenting', 'iqa']:
-                            if phase_filter not in state:
-                                continue
+                        if phase_filter and phase_filter not in state:
+                            continue
                         if idx + 1 < len(phases):
                             phase_end = phases[idx + 1][1]
                         else:
