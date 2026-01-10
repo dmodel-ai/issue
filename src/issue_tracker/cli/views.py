@@ -99,14 +99,18 @@ def cmd_list(args):
         alias = f" ({i['alias']})" if i.get('alias') else ""
         id_alias = f"#{num(i['id'])}{alias}"
 
+        rev_list = ['YOU' if r == u else r for r in reviewers]
+        rev_str = ', '.join(rev_list) if rev_list else '-'
         rows.append([
             f"{C['bold']}{id_alias}{C['reset']}",
             f"{sc}{i['status']}{C['reset']}",
             f"{oc}{owner_name}{C['reset']}",
+            f"{C['cyan']}{rev_str}{C['reset']}",
             f"{i['title']}{marks}",
         ])
     headers = [f"{C['dim']}ID{C['reset']}", f"{C['dim']}STATUS{C['reset']}",
-               f"{C['dim']}OWNER{C['reset']}", f"{C['dim']}TITLE{C['reset']}"]
+               f"{C['dim']}OWNER{C['reset']}", f"{C['dim']}REVIEWERS{C['reset']}",
+               f"{C['dim']}TITLE{C['reset']}"]
     print(tabulate(rows, headers=headers, tablefmt="plain"))
 
 
