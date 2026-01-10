@@ -151,9 +151,10 @@ def cmd_tui(_):
             table.clear(columns=True)
             table.cursor_type = "row"
 
-            issues = [i for i in all_issues() if i.get('due')]
+            issues = all_issues()
             if self.filter_text:
                 issues = filter_issues(issues, self.filter_text)
+            issues = [i for i in issues if i.get('due')]
             if not issues:
                 self.query_one("#filter", Static).update("[bold]gantt[/] (no issues with due dates)")
                 return
