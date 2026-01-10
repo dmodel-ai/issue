@@ -31,10 +31,15 @@ def resolve(arg):
         return index().get(int(arg))
     if len(arg) == 32 and exists(arg):
         return arg
-    # Check alias
-    for issue in all_issues():
+    # Check alias (exact match first, then prefix match)
+    issues = all_issues()
+    for issue in issues:
         if issue.get('alias') == arg:
             return issue['id']
+    # Prefix match: find unique alias starting with arg
+    matches = [i for i in issues if (i.get('alias') or '').startswith(arg)]
+    if len(matches) == 1:
+        return matches[0]['id']
     return None
 
 

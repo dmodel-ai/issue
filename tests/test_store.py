@@ -51,3 +51,11 @@ def test_resolve_by_alias():
     save({"id": "aliased123", "title": "Test", "status": "draft", "owner": "x", "alias": "myfeature"})
     assert resolve("myfeature") == "aliased123"
     assert resolve("nonexistent") is None
+
+def test_resolve_by_alias_prefix():
+    save({"id": "prefix123", "title": "Test", "status": "draft", "owner": "x", "alias": "featurex"})
+    assert resolve("feat") == "prefix123"
+    assert resolve("featurex") == "prefix123"
+    # Ambiguous prefix should not match
+    save({"id": "prefix456", "title": "Test2", "status": "draft", "owner": "x", "alias": "featurey"})
+    assert resolve("feature") is None  # matches both featurex and featurey
