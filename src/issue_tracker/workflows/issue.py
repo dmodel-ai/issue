@@ -1,14 +1,14 @@
-"""Issue review workflow: draft → review → approved → completed."""
+"""Issue review workflow: draft → review → approved → done."""
 from ..utils import die, now
 
-terminal = {"completed", "abandoned"}
+terminal = {"done", "abandoned"}
 active = {"draft", "review", "approved"}
 
 status_colors = {
     "draft": "dim",
     "review": "yellow",
     "approved": "green",
-    "completed": "dim",
+    "done": "dim",
     "abandoned": "red",
 }
 
@@ -77,7 +77,7 @@ transitions = {
     "review":   ({"draft"},         "review",    on_submit),
     "comment":  (active | terminal, None,        on_comment),
     "approve":  ({"review"},        "approved",  on_approve, all_approved),
-    "done":     (active,            "completed", clear_attention),
+    "done":     (active,            "done",      clear_attention),
     "abandon":  (active,            "abandoned", clear_attention),
     "block":    (active,            None,        on_block),
     "unblock":  (active,            None,        on_unblock),

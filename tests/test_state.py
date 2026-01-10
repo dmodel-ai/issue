@@ -73,7 +73,7 @@ def test_approve_partial():
 def test_done_clears_attention():
     issue = make_issue(status="approved")
     transition(issue, "done")
-    assert issue["status"] == "completed"
+    assert issue["status"] == "done"
     assert issue["attention"] == []
 
 
@@ -84,7 +84,7 @@ def test_abandon():
 
 
 def test_invalid_transition():
-    issue = make_issue(status="completed")
+    issue = make_issue(status="done")
     with pytest.raises(SystemExit):
         transition(issue, "review")
 

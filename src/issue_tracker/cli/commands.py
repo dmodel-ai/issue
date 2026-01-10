@@ -159,7 +159,7 @@ def cmd_do(action, args):
     for extra in extra_issues:
         save(extra)
 
-    past = {"review": "Submitted for review", "comment": "Commented on", "approve": "Approved", "done": "Completed"}
+    past = {"review": "Submitted for review", "comment": "Commented on", "approve": "Approved", "done": "Done"}
     print(f"{past.get(action, action.title() + 'ed')} #{args.id}")
     print(f"Attention: {', '.join(issue['attention'])}")
 
@@ -219,11 +219,14 @@ def cmd_update(args):
         return
 
     issue = load(id)
-    status = args.status or ("completed" if args.done else "abandoned" if args.abandon else None)
+    status = args.status or ("done" if args.done else "abandoned" if args.abandon else None)
     if status:
         if status in workflow.terminal:
-            action = "complete" if status == "completed" else "abandon"
-            transition(issue, action)
+            action = "done" if status == "done" else "abandon"
+            if action in workflow.transitions:
+                transition(issue, action)
+            else:
+                issue["status"] = status
         else:
             issue["status"] = status
 

@@ -40,11 +40,11 @@ def sample_issues(mock_user):
         "blocked_by": ["other"],
         "blocks": [],
     })
-    # Completed: should not appear
+    # Done: should not appear
     save({
         "id": "done1",
         "title": "Done Issue",
-        "status": "completed",
+        "status": "done",
         "owner": "testuser",
         "attention": [],
         "priority": 0,
@@ -68,7 +68,7 @@ def test_inbox_excludes_blocked(sample_issues):
     ids = [i["id"] for i in inbox]
     assert "blocked1" not in ids
 
-def test_inbox_excludes_completed(sample_issues):
+def test_inbox_excludes_done(sample_issues):
     inbox = inbox_issues()
     ids = [i["id"] for i in inbox]
     assert "done1" not in ids
