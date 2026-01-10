@@ -1,0 +1,42 @@
+name: Copybara Sync
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH for OSS repo
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.OSS_DEPLOY_KEY }}
+
+      - name: Configure Git and SSH
+        run: |
+          git config --global user.name "Copybara"
+          git config --global user.email "copybara@dmodel.ai"
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Build Copybara Docker image
+        run: |
+          git clone --depth 1 https://github.com/google/copybara.git /tmp/copybara
+          cd /tmp/copybara
+          docker build --rm -t copybara .
+
+      - name: Run Copybara
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/usr/src/app" \
+            -v ~/.ssh:/root/.ssh:ro \
+            -v $SSH_AUTH_SOCK:/ssh-agent \
+            -e SSH_AUTH_SOCK=/ssh-agent \
+            -e COPYBARA_CONFIG=copy.bara.sky \
+            -e COPYBARA_WORKFLOW=default \
+            copybara
