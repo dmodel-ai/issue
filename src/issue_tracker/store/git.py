@@ -35,12 +35,14 @@ MERGE_STRATEGY = {
 # Low-level git plumbing
 # =============================================================================
 
-def _git(*args, input=None, check=False):
+def _git(*args, input=None, check=False, strip=True):
     """Run git command, return stdout or None on failure."""
     r = subprocess.run(["git", *args], capture_output=True, text=True, input=input)
     if check and r.returncode != 0:
         raise subprocess.CalledProcessError(r.returncode, args)
-    return r.stdout.strip() if r.returncode == 0 else None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() if strip else r.stdout
 
 
 def _git_list():
@@ -56,17 +58,17 @@ def _git_exists(filename):
 
 def _read_from_commit(commit, filename):
     """Read file from a specific commit. Returns None if not found."""
-    return _git("show", f"{commit}:{filename}") if commit else None
+    return _git("show", f"{commit}:{filename}", strip=False) if commit else None
 
 
 def _read_local(filename):
     """Read file from local issues branch."""
-    return _git("show", f"{BRANCH}:{filename}")
+    return _git("show", f"{BRANCH}:{filename}", strip=False)
 
 
 def _read_remote(filename):
     """Read file from origin/issues."""
-    return _git("show", f"{REMOTE}/{BRANCH}:{filename}")
+    return _git("show", f"{REMOTE}/{BRANCH}:{filename}", strip=False)
 
 
 def _write_local(filename, content, message):
@@ -74,9 +76,28 @@ def _write_local(filename, content, message):
     _ensure_branch()
     blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
     tree_content = _git("ls-tree", BRANCH) or ""
-    lines = [l for l in tree_content.split('\n') if l and not l.endswith(f'\t{filename}')]
-    lines.append(f"100644 blob {blob}\t{filename}")
-    new_tree = _git("mktree", input='\n'.join(lines), check=True)
+    entries = []
+    for line in tree_content.split('\n'):
+        if not line:
+            continue
+        meta, name = line.split('\t', 1)
+        if name == filename:
+            continue
+        entries.append((meta, name))
+    entries.append((f"100644 blob {blob}", filename))
+
+    def sort_key(entry):
+        meta, name = entry
+        kind = meta.split()[1] if meta else ""
+        suffix = "/" if kind == "tree" else ""
+        return f"{name}{suffix}"
+
+    entries.sort(key=sort_key)
+    new_tree = _git(
+        "mktree",
+        input='\n'.join(f"{meta}\t{name}" for meta, name in entries),
+        check=True,
+    )
     parent = _git("rev-parse", BRANCH)
     parent_args = ["-p", parent] if parent else []
     commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
@@ -111,8 +132,12 @@ def _ensure_branch():
     _git("update-ref", LOCAL_REF, commit, check=True)
 
 
-def _ensure_branch_ready():
-    """Ensure the issues branch exists locally, fetching remote if needed."""
+def _ensure_branch_exists():
+    """Ensure the issues branch exists locally, fetching remote if needed.
+
+    Unlike _ensure_read_setup(), this does NOT merge from remote.
+    Used by index()/exists() which are called during writes.
+    """
     if _git("rev-parse", "--verify", BRANCH):
         return
     _try_fetch()
@@ -360,7 +385,9 @@ def _try_sync(filename):
 
     # Diverged - preserve every local YAML change, then replay them on top of remote
     base_commit = _get_merge_base()
-    local_diff = _git("diff", "--name-only", remote_ref, local_ref) or ""
+    # Get files changed locally. If no common ancestor (orphan branches), use remote as diff base
+    diff_base = base_commit if base_commit else remote_ref
+    local_diff = _git("diff", "--name-only", diff_base, local_ref) or ""
     local_files = [f for f in local_diff.split('\n') if f.endswith('.yaml')]
     local_snapshots = {f: _read_local(f) for f in local_files}
 
@@ -401,7 +428,11 @@ def _commit_msg(issue, action="Update", old_issue=None):
     """Generate human-friendly commit message."""
     from . import num  # avoid circular import
     title = issue.get('title', '')[:50]
-    ref = issue.get('alias') or f"#{num(issue['id']) or issue['id'][:8]}"
+    issue_id = issue.get('id')
+    if issue_id:
+        ref = issue.get('alias') or f"#{num(issue_id) or issue_id[:8]}"
+    else:
+        ref = issue.get('alias') or "#?"
     msg = f"{action}: {title} ({ref})"
 
     # Add status transition if changed
@@ -415,7 +446,7 @@ def _commit_msg(issue, action="Update", old_issue=None):
 
 def exists(id):
     """Check if issue exists."""
-    _ensure_branch_ready()
+    _ensure_branch_exists()
     return _git_exists(f"{id}.yaml")
 
 
@@ -457,7 +488,7 @@ def all_issues():
 
 def index():
     """Get mapping of issue numbers to IDs."""
-    _ensure_branch_ready()
+    _ensure_branch_exists()
     files = [f for f in _git_list() if f.endswith('.yaml')]
     return {n+1: f[:-5] for n, f in enumerate(files)}
 
@@ -476,9 +507,10 @@ def write_raw(id, content):
     """
     filename = f"{id}.yaml"
     issue = yaml.safe_load(content) or {}
+    commit_issue = issue if issue.get('id') else {**issue, 'id': id}
 
     # Write locally first
-    _write_local(filename, content, _commit_msg(issue, "Edit"))
+    _write_local(filename, content, _commit_msg(commit_issue, "Edit"))
 
     # Try to sync with remote
     _try_sync(filename)
