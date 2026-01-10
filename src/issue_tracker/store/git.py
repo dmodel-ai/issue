@@ -75,32 +75,11 @@ def _write_local(filename, content, message):
     """Write to local issues branch using git plumbing."""
     _ensure_branch()
     blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
-    tree_content = _git("ls-tree", BRANCH) or ""
-    entries = []
-    for line in tree_content.split('\n'):
-        if not line:
-            continue
-        meta, name = line.split('\t', 1)
-        if name == filename:
-            continue
-        entries.append((meta, name))
-    entries.append((f"100644 blob {blob}", filename))
-
-    def sort_key(entry):
-        meta, name = entry
-        kind = meta.split()[1] if meta else ""
-        suffix = "/" if kind == "tree" else ""
-        return f"{name}{suffix}"
-
-    entries.sort(key=sort_key)
-    new_tree = _git(
-        "mktree",
-        input='\n'.join(f"{meta}\t{name}" for meta, name in entries),
-        check=True,
-    )
+    _git("read-tree", BRANCH, check=True)
+    _git("update-index", "--add", "--cacheinfo", f"100644,{blob},{filename}", check=True)
+    new_tree = _git("write-tree", check=True)
     parent = _git("rev-parse", BRANCH)
-    parent_args = ["-p", parent] if parent else []
-    commit = _git("commit-tree", new_tree, *parent_args, "-m", message, check=True)
+    commit = _git("commit-tree", new_tree, *(["-p", parent] if parent else []), "-m", message, check=True)
     _git("update-ref", LOCAL_REF, commit, check=True)
 
 
