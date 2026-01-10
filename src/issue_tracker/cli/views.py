@@ -137,6 +137,14 @@ def outbox_issues():
     return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
 
+def done_issues():
+    u = user()
+    items = [i for i in all_issues()
+             if i['status'] == 'done'
+             and (i['owner'] == u or u in i.get('reviewers', []))]
+    return sorted(items, key=lambda i: i['updated'], reverse=True)
+
+
 def _inbox_headers(who="OWNER"):
     d, r = C['dim'], C['reset']
     return [f"{d}ID{r}", f"{d}P{r}", f"{d}STATUS{r}", f"{d}{who}{r}",
@@ -172,7 +180,6 @@ def _make_inbox_row(i, arrow_to=None):
 def cmd_inbox(_):
     items = inbox_issues()
     if not items:
-        print(f"{C['dim']}Inbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['green']}INBOX{C['reset']} ({len(items)})")
     rows = [_make_inbox_row(i) for i in items]
@@ -193,11 +200,20 @@ def cmd_cc(_):
 def cmd_outbox(_):
     items = outbox_issues()
     if not items:
-        print(f"{C['dim']}Outbox empty!{C['reset']}")
         return False
     print(f"{C['bold']}{C['yellow']}OUTBOX{C['reset']} ({len(items)})")
     rows = [_make_inbox_row(i, ', '.join(i.get('attention', ['?']))[:12]) for i in items]
     print(tabulate(rows, headers=_inbox_headers("WAITING"), tablefmt="plain"))
+    return True
+
+
+def cmd_done(_):
+    items = done_issues()
+    if not items:
+        return False
+    print(f"{C['bold']}{C['dim']}DONE{C['reset']} ({len(items)})")
+    rows = [_make_inbox_row(i) for i in items]
+    print(tabulate(rows, headers=_inbox_headers(), tablefmt="plain"))
     return True
 
 
@@ -316,5 +332,7 @@ def cmd_default(_):
     if has_cc: print()
     has_outbox = cmd_outbox(None)
     if has_outbox: print()
-    if not has_inbox and not has_cc and not has_outbox:
+    has_done = cmd_done(None)
+    if has_done: print()
+    if not has_inbox and not has_cc and not has_outbox and not has_done:
         print("No active issues.")
