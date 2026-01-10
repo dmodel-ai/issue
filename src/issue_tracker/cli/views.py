@@ -219,7 +219,10 @@ def cmd_done(_):
 
 def cmd_gantt(args):
     from datetime import datetime, timedelta
-    issues = [i for i in all_issues() if i.get('due')]
+    issues = all_issues()
+    if args.query:
+        issues = filter_issues(issues, args.query)
+    issues = [i for i in issues if i.get('due')]
     if not issues:
         print(f"{C['dim']}No issues with due dates{C['reset']}")
         return

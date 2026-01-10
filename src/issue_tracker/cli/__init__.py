@@ -87,6 +87,7 @@ def main():
     s.add_parser("inbox", help="issues needing your action")
     s.add_parser("outbox", help="your issues waiting on others")
     c = s.add_parser("gantt", help="show timeline view")
+    c.add_argument("query", nargs="?", help="query DSL: field:value -negation text")
     c.add_argument("-w", "--weeks", type=int, default=4, help="weeks to show (default: 4)")
     c.add_argument("-v", "--verbose", action="store_true", help="show sub-bars for each state deadline")
 
