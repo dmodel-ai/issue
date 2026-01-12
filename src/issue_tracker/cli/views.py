@@ -131,8 +131,10 @@ def cc_issues():
 
 def outbox_issues():
     u = user()
+    commented = lambda i: any(c['author'] == u for c in i.get('comments', []))
     items = [i for i in all_issues()
-             if i['owner'] == u and u not in i.get('attention', [])
+             if (i['owner'] == u or commented(i))
+             and u not in i.get('attention', [])
              and i.get('attention') and not i.get('blocked_by')]
     return sorted(items, key=lambda i: (-i.get('priority', 0), i['id']))
 
