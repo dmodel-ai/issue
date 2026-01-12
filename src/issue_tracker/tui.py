@@ -80,7 +80,7 @@ def cmd_tui(_):
                 status = f"[{sc}]{i['status']}[/{sc}]" if sc else i['status']
                 table.add_row(
                     f"#{num(i['id'])}", status, i['owner'],
-                    f"{attn} {i['title'][:40]}", deps,
+                    f"{attn} {i['title'][:37]}..." if len(i['title']) > 40 else f"{attn} {i['title']}", deps,
                     key=i['id']
                 )
 
@@ -115,7 +115,7 @@ def cmd_tui(_):
                     if i.get('comments'):
                         lines.append("")
                         for c in i['comments'][-3:]:
-                            lines.append(f"  {c['author']}: {c['text'][:60]}")
+                            lines.append(f"  {c['author']}: {c['text'][:57]}..." if len(c['text']) > 60 else f"  {c['author']}: {c['text']}")
                     detail.update("\n".join(lines))
 
         def action_refresh(self):
@@ -328,7 +328,7 @@ def cmd_tui(_):
         def show_picker(self, ids, title):
             from textual.widgets import OptionList
             from textual.widgets.option_list import Option
-            opts = [Option(f"#{num(i)} {load(i)['title'][:40]}", id=i) for i in ids]
+            opts = [Option(f"#{num(i)} {load(i)['title'][:37]}..." if len(load(i)['title']) > 40 else f"#{num(i)} {load(i)['title']}", id=i) for i in ids]
             picker = OptionList(*opts, id="picker")
             self.query_one("#filter", Static).update(title)
             self.mount(picker, after="#filter")

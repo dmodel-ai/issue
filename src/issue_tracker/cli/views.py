@@ -163,7 +163,8 @@ def _make_inbox_row(i, arrow_to=None):
     pri_color = C['magenta'] if i.get('priority') else C['dim']
     dep_str = f"→{refs(i['blocks'])}" if i.get('blocks') else f"←{refs(i['blocked_by'])}" if i.get('blocked_by') else "-"
     dep_color = C['green'] if i.get('blocks') else C['red'] if i.get('blocked_by') else C['dim']
-    cmt = f'"{i["comments"][-1]["text"][:20]}"' if i.get('comments') else "-"
+    cmt_text = i["comments"][-1]["text"] if i.get('comments') else ""
+    cmt = f'"{cmt_text[:17]}..."' if len(cmt_text) > 20 else f'"{cmt_text}"' if cmt_text else "-"
     sc = C.get(status_colors.get(i['status'], ''), '')
     alias = f" ({i['alias']})" if i.get('alias') else ""
     id_alias = f"#{num(i['id'])}{alias}"
@@ -173,7 +174,7 @@ def _make_inbox_row(i, arrow_to=None):
         f"{pri_color}{pri_str}{r}",
         f"{sc}{i['status']}{r}",
         f"{arrow_color}{arrow_name}{r}",
-        f"[{i['title'][:25]}]",
+        f"[{i['title'][:22]}...]" if len(i['title']) > 25 else f"[{i['title']}]",
         f"{dep_color}{dep_str}{r}",
         f"{C['dim']}{cmt}{r}",
     ]
