@@ -105,11 +105,16 @@ def _ensure_branch_exists(sync=False):
     _ensure_branch()
 
 
-def _try_fetch():
+def _try_fetch(quiet=False):
     """Try to fetch remote (blocking). Returns True if online/successful."""
     if not AUTO_SYNC or not _has_remote():
         return False
-    return _git("fetch", REMOTE, f"{BRANCH}:{REMOTE_REF}") is not None
+    if not quiet:
+        print("Fetching from remote...", file=sys.stderr, end="", flush=True)
+    result = _git("fetch", REMOTE, f"{BRANCH}:{REMOTE_REF}") is not None
+    if not quiet:
+        print(" done" if result else " failed", file=sys.stderr)
+    return result
 
 
 def _fetch_background():
@@ -119,14 +124,17 @@ def _fetch_background():
     with _fetch_lock:
         if _fetch_thread is not None and _fetch_thread.is_alive():
             return
-        _fetch_thread = threading.Thread(target=_try_fetch, daemon=True)
+        _fetch_thread = threading.Thread(target=lambda: _try_fetch(quiet=True), daemon=True)
         _fetch_thread.start()
 
 
 def _try_push():
     if not AUTO_SYNC or not _has_remote():
         return True  # No remote, consider it "success"
-    return _git("push", "-u", REMOTE, BRANCH) is not None
+    print("Pushing to remote...", file=sys.stderr, end="", flush=True)
+    result = _git("push", "-u", REMOTE, BRANCH) is not None
+    print(" done" if result else " failed", file=sys.stderr)
+    return result
 
 
 def _get_merge_base():
