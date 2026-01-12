@@ -384,6 +384,7 @@ def load(id):
 
 
 def save(issue):
+    from ..discord import notify_issue_change
     filename = f"{issue['id']}.yaml"
     _try_fetch()
 
@@ -395,6 +396,7 @@ def save(issue):
     content = yaml.dump(issue, default_flow_style=False, sort_keys=False)
     _write_local(filename, content, _commit_msg(issue, old_issue=old_issue))
     _try_sync(filename)
+    notify_issue_change(issue, old_issue)
 
 
 def all_issues():

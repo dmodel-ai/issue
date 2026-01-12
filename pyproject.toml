@@ -16,6 +16,7 @@ issue = "issue_tracker:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+aws = ["boto3>=1.34"]
 
 [build-system]
 requires = ["hatchling"]
