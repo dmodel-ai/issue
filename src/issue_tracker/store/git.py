@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import yaml
 from ..utils import die, now
@@ -57,12 +58,22 @@ def _read_local(filename):
 def _read_remote(filename):
     return _git("show", f"{REMOTE}/{BRANCH}:{filename}", strip=False)
 
+def _git_with_index(index_file, *args, input=None, check=False, strip=True):
+    """Run git with a custom index file."""
+    env = {**os.environ, "GIT_INDEX_FILE": index_file}
+    r = subprocess.run(["git", *args], capture_output=True, text=True, input=input, env=env)
+    if check and r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, args)
+    return (r.stdout.strip() if strip else r.stdout) if r.returncode == 0 else None
+
+
 def _write_local(filename, content, message):
     _ensure_branch()
     blob = _git("hash-object", "-w", "--stdin", input=content, check=True)
-    _git("read-tree", BRANCH, check=True)
-    _git("update-index", "--add", "--cacheinfo", f"100644,{blob},{filename}", check=True)
-    new_tree = _git("write-tree", check=True)
+    with tempfile.NamedTemporaryFile(suffix=".git-index", delete=True) as tmp:
+        _git_with_index(tmp.name, "read-tree", BRANCH, check=True)
+        _git_with_index(tmp.name, "update-index", "--add", "--cacheinfo", f"100644,{blob},{filename}", check=True)
+        new_tree = _git_with_index(tmp.name, "write-tree", check=True)
     parent = _git("rev-parse", BRANCH)
     commit = _git("commit-tree", new_tree, *(["-p", parent] if parent else []), "-m", message, check=True)
     _git("update-ref", LOCAL_REF, commit, check=True)
