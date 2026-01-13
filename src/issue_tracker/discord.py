@@ -27,6 +27,11 @@ def _get_webhook_url():
     secret_name = os.environ.get("ISSUE_DISCORD_SECRET", "issue-tracker/test-plain")
     try:
         import boto3
+    except ImportError:
+        print("Warning: boto3 not installed, Discord notifications disabled. Reinstall: uv tool install -e ~/src/issue-tracker --reinstall", file=sys.stderr)
+        _webhook_url_cache = ""
+        return ""
+    try:
         client = boto3.client("secretsmanager")
         resp = client.get_secret_value(SecretId=secret_name)
         _webhook_url_cache = resp["SecretString"]
@@ -84,3 +89,6 @@ def notify_issue_change(issue: dict, old_issue: dict | None = None):
     if len(new_comments) > len(old_comments):
         c = new_comments[-1]
         notify(f"**{ref}** comment by {c['author']}: {c['text'][:100]}")
+        return
+
+    notify(f"**{ref}** updated: {title}")

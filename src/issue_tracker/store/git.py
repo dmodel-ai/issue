@@ -431,12 +431,18 @@ def write_raw(id, content):
     Caller must ensure `_ensure_branch_exists(sync=True)` or an equivalent fetch happened
     beforehand so the local branch reflects the remote state before editing.
     """
+    from ..discord import notify_issue_change
     filename = f"{id}.yaml"
     issue = yaml.safe_load(content) or {}
     commit_issue = issue if issue.get('id') else {**issue, 'id': id}
+
+    # Read previous version for notification
+    old_content = _read_local(filename)
+    old_issue = yaml.safe_load(old_content) if old_content else None
 
     # Write locally first
     _write_local(filename, content, _commit_msg(commit_issue, "Edit"))
 
     # Try to sync with remote
     _try_sync(filename)
+    notify_issue_change(commit_issue, old_issue)
