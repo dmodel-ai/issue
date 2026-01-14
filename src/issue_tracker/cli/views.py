@@ -45,7 +45,8 @@ def cmd_show(args):
     if i['comments']:
         print("\ncomments:")
         for c in i['comments']:
-            print(f"  {c['author']} ({ago(c['time'])}): {c['text']}")
+            text = c['text'].replace('\n', '\n  ')
+            print(f"\n  {c['author']} ({ago(c['time'])}):\n  {text}")
 
 
 def cmd_list(args):

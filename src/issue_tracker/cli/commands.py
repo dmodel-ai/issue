@@ -9,6 +9,11 @@ from ..store import load, save, fetch, num, resolve, all_issues, read_raw, write
 from ..workflows import transition, workflow, INITIAL_STATE, DONE_STATE
 from .views import inbox_issues, outbox_issues
 
+def _str_representer(dumper, data):
+    style = '|' if '\n' in data else None
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style=style)
+yaml.SafeDumper.add_representer(str, _str_representer)
+
 
 def validate_alias(alias):
     if alias and alias.isdigit():
@@ -178,7 +183,7 @@ def cmd_comment(args):
     issue = load(id)
     text = args.text
     if not text:
-        issue_yaml = yaml.dump(issue, default_flow_style=False, sort_keys=False)
+        issue_yaml = yaml.dump(issue, Dumper=yaml.SafeDumper, default_flow_style=False, sort_keys=False)
         commented = '\n'.join(f'# {l}' for l in issue_yaml.split('\n'))
         text = edit(f"{commented}\n\n").strip()
         text = '\n'.join(l for l in text.split('\n') if not l.startswith('#')).strip()
