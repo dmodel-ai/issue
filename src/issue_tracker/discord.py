@@ -36,7 +36,8 @@ def _get_webhook_url():
         resp = client.get_secret_value(SecretId=secret_name)
         _webhook_url_cache = resp["SecretString"]
         return _webhook_url_cache
-    except Exception:
+    except Exception as e:
+        print(f"Warning: failed to get Discord webhook from Secrets Manager ({secret_name}): {e}", file=sys.stderr)
         _webhook_url_cache = ""
         return ""
 
@@ -58,9 +59,15 @@ def _post_webhook(content: str):
         },
     )
     try:
-        urllib.request.urlopen(req, timeout=5)
-    except urllib.error.URLError:
-        pass
+        resp = urllib.request.urlopen(req, timeout=5)
+        if resp.status >= 400:
+            print(f"Warning: Discord webhook returned {resp.status}: {resp.read().decode()[:200]}", file=sys.stderr)
+    except urllib.error.HTTPError as e:
+        print(f"Warning: Discord webhook HTTP error {e.code}: {e.read().decode()[:200]}", file=sys.stderr)
+    except urllib.error.URLError as e:
+        print(f"Warning: Discord webhook failed: {e.reason}", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: Discord webhook unexpected error: {e}", file=sys.stderr)
 
 
 def notify(content: str):
