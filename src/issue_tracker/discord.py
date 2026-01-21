@@ -32,7 +32,8 @@ def _get_webhook_url():
         _webhook_url_cache = ""
         return ""
     try:
-        client = boto3.client("secretsmanager")
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
+        client = boto3.client("secretsmanager", region_name=region)
         resp = client.get_secret_value(SecretId=secret_name)
         _webhook_url_cache = resp["SecretString"]
         return _webhook_url_cache
