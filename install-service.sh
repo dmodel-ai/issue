@@ -9,7 +9,7 @@ After=network.target
 [Service]
 Type=simple
 User=$(whoami)
-WorkingDirectory=$(pwd)
+WorkingDirectory=$1
 ExecStart=$(pwd)/.venv/bin/uvicorn issue_tracker.web:create_app --factory --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
