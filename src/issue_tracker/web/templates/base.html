@@ -34,12 +34,59 @@
         .comment-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.25rem; }
         .actions { display: flex; gap: 0.5rem; margin: 1rem 0; }
         .meta { color: var(--muted); font-size: 0.9rem; }
+        .gantt-form { display: flex; gap: 1rem; align-items: center; margin: 0.5rem 0 1rem; }
+        .gantt-form input[type="text"] { width: 200px; }
+        .gantt-form input[type="number"] { width: 50px; margin-left: 0.25rem; }
+        .gantt-form label { color: var(--muted); font-size: 0.9rem; }
+        .gantt { position: relative; margin-top: 0.5rem; }
+        .gantt-header { display: flex; border-bottom: 1px solid #444; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+        .gantt-row { display: flex; height: 26px; align-items: center; }
+        .gantt-row:hover { background: rgba(255,255,255,0.03); }
+        .gantt-label { width: 120px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
+        .gantt-track { flex: 1; position: relative; height: 18px; background: rgba(255,255,255,0.02); border-radius: 2px; }
+        .gantt-bar { position: absolute; height: 100%; border-radius: 2px; min-width: 4px; cursor: grab; }
+        .gantt-bar.dragging { opacity: 0.7; cursor: grabbing; }
+        .gantt-handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+        .gantt-handle-left { left: -2px; }
+        .gantt-handle-right { right: -2px; }
+        .gantt-bar:hover .gantt-handle { background: rgba(255,255,255,0.2); }
+        .gantt-today { position: absolute; width: 1px; background: rgba(255,220,0,0.6); top: 2.5rem; bottom: 0; z-index: 10; pointer-events: none; }
+        .gantt-grid { display: flex; height: 0; overflow: visible; pointer-events: none; }
+        .gantt-grid .gantt-track { height: 1000px; }
+        .gantt-day { position: absolute; top: 0; height: 100%; width: 1px; background: rgba(255,255,255,0.06); }
+        .gantt-day-week { background: rgba(255,255,255,0.15); }
+        .gantt-week { display: inline-block; width: calc(100% / 4); font-size: 0.8rem; color: var(--muted); }
+        .gantt-phase { height: 20px; opacity: 0.7; }
+        .gantt-phase-label { padding-left: 0.75rem; font-size: 0.75rem; color: #666; }
+        .gantt-phase .gantt-track { height: 12px; }
+        .status-behind { background: #994400; }
+        .no-due-section { margin-top: 1.5rem; border-top: 1px solid #333; padding-top: 1rem; }
+        .no-due-header { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+        .no-due-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+        .no-due-item { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.6rem; cursor: pointer; border-radius: 4px; background: rgba(255,255,255,0.03); border: 1px solid #333; font-size: 0.85rem; transition: all 0.15s; }
+        .no-due-item:hover { background: rgba(74,158,255,0.1); border-color: var(--accent); }
+        .no-due-label { color: var(--accent); font-weight: 500; }
+        .no-due-title { color: var(--muted); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gantt-container { display: flex; gap: 1rem; }
+        .gantt { flex: 1; user-select: none; position: relative; overflow: hidden; }
+        .gantt-row { cursor: default; }
+        .due-editor { width: 260px; background: linear-gradient(135deg, #252538 0%, #1e1e2e 100%); border-radius: 6px; padding: 1rem; margin-top: 0.75rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); border: 1px solid #333; }
+        .due-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #444; }
+        .due-header strong { color: var(--accent); }
+        .due-header button { background: none; border: none; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 0; transition: color 0.15s; }
+        .due-header button:hover { color: var(--fg); }
+        .due-row { display: flex; justify-content: space-between; align-items: center; margin: 0.5rem 0; }
+        .due-row label { font-size: 0.8rem; color: var(--muted); text-transform: capitalize; }
+        .due-row input { width: 130px; font-size: 0.85rem; padding: 0.3rem 0.4rem; }
+        .due-actions { margin-top: 1rem; }
+        .due-actions button { width: 100%; padding: 0.5rem; }
     </style>
 </head>
 <body>
     <div class="container">
         <nav>
             <a href="/">Issues</a>
+            <a href="/gantt">Gantt</a>
             <a href="/new">New Issue</a>
             <span class="meta" style="float:right">{{ user }}</span>
         </nav>

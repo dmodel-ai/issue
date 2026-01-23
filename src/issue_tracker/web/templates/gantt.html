@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Gantt{% endblock %}
+{% block content %}
+<form method="get" action="/gantt" class="gantt-form">
+    <input type="text" name="q" placeholder="Filter..." value="{{ query }}" onchange="this.form.submit()">
+    <label>Weeks <input type="number" name="weeks" value="{{ num_weeks }}" min="1" max="52" onchange="this.form.submit()"></label>
+</form>
+{% if bars %}
+<div class="gantt-container">
+<div class="gantt" data-start="{{ start_date }}" data-days="{{ total_days }}">
+    <div class="gantt-header">
+        <span class="gantt-label"></span>
+        <div class="gantt-track">
+            {% for week in weeks %}<span class="gantt-week">{{ week }}</span>{% endfor %}
+        </div>
+    </div>
+    <div class="gantt-grid">
+        <span class="gantt-label"></span>
+        <div class="gantt-track">
+            {% for d in range(total_days) %}<span class="gantt-day{% if d % 7 == 0 %} gantt-day-week{% endif %}" style="left:{{ d * 100 / total_days }}%"></span>{% endfor %}
+        </div>
+    </div>
+    <div class="gantt-today" style="left: calc(120px + (100% - 120px) * {{ today_pct }} / 100)"></div>
+    {% for bar in bars %}
+    <div class="gantt-row">
+        <a href="/issue/{{ bar.num }}" class="gantt-label">{{ bar.label }}</a>
+        <div class="gantt-track">
+            <div class="gantt-bar status-{{ bar.status }}" data-issue="{{ bar.num }}"
+                 style="left:{{ bar.left }}%; width:{{ bar.width }}%">
+                <div class="gantt-handle gantt-handle-left"></div>
+                <div class="gantt-handle gantt-handle-right"></div>
+            </div>
+        </div>
+    </div>
+    {% for phase in bar.phases %}
+    <div class="gantt-row gantt-phase">
+        <span class="gantt-label gantt-phase-label">{{ phase.state }}</span>
+        <div class="gantt-track">
+            <div class="gantt-bar gantt-bar-phase status-{{ phase.status }}"
+                 data-issue="{{ bar.num }}" data-phase="{{ phase.state }}"
+                 style="left:{{ phase.left }}%; width:{{ phase.width }}%">
+                <div class="gantt-handle gantt-handle-left"></div>
+                <div class="gantt-handle gantt-handle-right"></div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% endfor %}
+</div>
+</div>
+<script>
+(function() {
+    const gantt = document.querySelector('.gantt');
+    const startDateStr = gantt.dataset.start;
+    const totalDays = parseInt(gantt.dataset.days);
+    const dayPct = 100 / totalDays;  // percentage per day
+
+    function parseDate(s) {
+        const [y, m, d] = s.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+    const startDate = parseDate(startDateStr);
+
+    function snapToDay(pct) {
+        return Math.round(pct / dayPct) * dayPct;
+    }
+
+    function pctToDate(pct) {
+        const days = Math.round(pct / dayPct);
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + days);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    }
+
+    let dragging = null;
+    let moved = false;
+
+    document.addEventListener('mousedown', e => {
+        const handle = e.target.closest('.gantt-handle');
+        const bar = e.target.closest('.gantt-bar');
+        if (!bar || !bar.dataset.issue) return;
+
+        const track = bar.closest('.gantt-track');
+        const rect = track.getBoundingClientRect();
+
+        dragging = {
+            bar,
+            trackRect: rect,
+            issue: bar.dataset.issue,
+            phase: bar.dataset.phase || null,
+            startLeft: parseFloat(bar.style.left) || 0,
+            startWidth: parseFloat(bar.style.width) || 10,
+            startX: e.clientX,
+            mode: handle ? (handle.classList.contains('gantt-handle-left') ? 'left' : 'right') : 'move'
+        };
+        moved = false;
+        bar.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        moved = true;
+
+        const dx = e.clientX - dragging.startX;
+        const dPct = dx / dragging.trackRect.width * 100;
+
+        let newLeft = dragging.startLeft;
+        let newWidth = dragging.startWidth;
+
+        if (dragging.mode === 'left') {
+            newLeft = snapToDay(Math.max(0, Math.min(dragging.startLeft + dragging.startWidth - dayPct, dragging.startLeft + dPct)));
+            newWidth = dragging.startLeft + dragging.startWidth - newLeft;
+        } else if (dragging.mode === 'right') {
+            newWidth = snapToDay(Math.max(dayPct, Math.min(100 - dragging.startLeft, dragging.startWidth + dPct)));
+        } else {
+            newLeft = snapToDay(Math.max(0, Math.min(100 - dragging.startWidth, dragging.startLeft + dPct)));
+        }
+
+        dragging.bar.style.left = newLeft + '%';
+        dragging.bar.style.width = newWidth + '%';
+        dragging.newLeft = newLeft;
+        dragging.newWidth = newWidth;
+    });
+
+    document.addEventListener('mouseup', e => {
+        if (!dragging) return;
+
+        dragging.bar.classList.remove('dragging');
+
+        if (moved && dragging.newLeft !== undefined) {
+            const newStart = pctToDate(dragging.newLeft);
+            const newEnd = pctToDate(dragging.newLeft + dragging.newWidth);
+
+            const form = new FormData();
+            if (dragging.phase) {
+                form.append('phase', dragging.phase);
+                form.append('mode', dragging.mode);
+                form.append('start', newStart);
+                form.append('end', newEnd);
+            } else {
+                form.append('shift_start', newStart);
+                form.append('shift_end', newEnd);
+            }
+
+            fetch('/gantt/drag/' + dragging.issue, {
+                method: 'POST',
+                body: form
+            }).then(() => location.reload())
+              .catch(err => console.error('Save error', err));
+        }
+
+        dragging = null;
+        moved = false;
+    });
+})();
+</script>
+{% endif %}
+{% if no_due %}
+<div class="no-due-section">
+    <div class="no-due-header">No deadlines ({{ no_due|length }})</div>
+    <div class="no-due-list">
+    {% for issue in no_due %}
+        <div class="no-due-item" hx-get="/issue/{{ issue.num }}/due" hx-target="#due-editor" hx-swap="innerHTML">
+            <span class="no-due-label">{{ issue.label }}</span>
+            <span class="no-due-title">{{ issue.title }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+<div id="due-editor"></div>
+{% endif %}
+{% if not bars and not no_due %}
+<p class="meta">No issues found.</p>
+{% endif %}
+{% endblock %}
