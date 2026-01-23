@@ -1,0 +1,10 @@
+{% if issue['comments'] %}
+{% for c in issue['comments'] %}
+<div class="comment">
+    <div class="comment-meta">{{ c['author'] }} &middot; {{ ago(c['time']) }}</div>
+    <div>{{ c['text'] | replace('\n', '<br>') | safe }}</div>
+</div>
+{% endfor %}
+{% else %}
+<p class="meta">No comments yet.</p>
+{% endif %}

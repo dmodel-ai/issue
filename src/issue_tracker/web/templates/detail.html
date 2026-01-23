@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}#{{ num(issue['id']) }} {{ issue['title'] }}{% endblock %}
+{% block content %}
+<h1>#{{ num(issue['id']) }} {{ issue['title'] }}</h1>
+<p class="meta">
+    <span class="status status-{{ issue['status'] }}">{{ issue['status'] }}</span>
+    Owner: <strong>{{ issue['owner'] }}</strong>
+    {% if issue.get('reviewers') %}| Reviewers: {{ issue['reviewers'] | join(', ') }}{% endif %}
+    {% if issue.get('labels') %}| Labels: {{ issue['labels'] | join(', ') }}{% endif %}
+</p>
+<p class="meta">Created: {{ issue['created'][:10] }} | Updated: {{ ago(issue['updated']) }}</p>
+
+{% if actions %}
+<div class="actions">
+    {% for action in actions %}
+    <form method="post" action="/issue/{{ num(issue['id']) }}/transition/{{ action }}" style="margin:0;">
+        <button type="submit">{{ action | title }}</button>
+    </form>
+    {% endfor %}
+</div>
+{% endif %}
+
+<h2>Comments</h2>
+<div id="comments">
+{% include "partials/comments.html" %}
+</div>
+
+<form hx-post="/issue/{{ num(issue['id']) }}/comment" hx-target="#comments" hx-swap="innerHTML">
+    <textarea name="text" rows="3" style="width: 100%;" placeholder="Add a comment..."></textarea><br>
+    <button type="submit" style="margin-top: 0.5rem;">Comment</button>
+</form>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}New Issue{% endblock %}
+{% block content %}
+<h1>New Issue</h1>
+<form method="post" action="/new">
+    <p>
+        <label>Title<br>
+        <input type="text" name="title" required style="width: 100%;"></label>
+    </p>
+    <p>
+        <label>Owner (default: you)<br>
+        <input type="text" name="owner" placeholder="{{ user }}"></label>
+    </p>
+    <p>
+        <label>Reviewers (comma-separated)<br>
+        <input type="text" name="reviewers" style="width: 100%;"></label>
+    </p>
+    <p>
+        <label>Labels (comma-separated)<br>
+        <input type="text" name="labels" style="width: 100%;"></label>
+    </p>
+    <button type="submit">Create Issue</button>
+</form>
+{% endblock %}

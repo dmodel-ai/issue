@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Issues{% endblock %}
+{% block content %}
+<h1>Issues</h1>
+<form method="get" action="/">
+    <input type="text" name="q" placeholder="Search: owner:alice status:review..." value="{{ query }}" style="width: 400px;">
+    <button type="submit">Search</button>
+</form>
+{% if issues %}
+<table>
+    <thead>
+        <tr><th>#</th><th>Status</th><th>Owner</th><th>Title</th><th>Updated</th></tr>
+    </thead>
+    <tbody>
+    {% for i in issues %}
+        <tr>
+            <td><a href="/issue/{{ num(i['id']) }}">#{{ num(i['id']) }}</a></td>
+            <td><span class="status status-{{ i['status'] }}">{{ i['status'] }}</span></td>
+            <td>{{ i['owner'] }}</td>
+            <td>{{ i['title'] }}</td>
+            <td class="meta">{{ ago(i['updated']) }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="meta">No issues found.</p>
+{% endif %}
+{% endblock %}

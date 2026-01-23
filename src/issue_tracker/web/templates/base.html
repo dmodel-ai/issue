@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Issue Tracker{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        :root { --bg: #1a1a2e; --fg: #eee; --accent: #4a9eff; --muted: #888; --success: #4caf50; --warn: #ff9800; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 1rem; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        nav { margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #333; }
+        nav a { margin-right: 1rem; }
+        .container { max-width: 900px; margin: 0 auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #333; }
+        th { color: var(--muted); font-weight: normal; }
+        form { margin: 1rem 0; }
+        input, textarea, button { font-family: inherit; font-size: 1rem; padding: 0.5rem; border-radius: 4px; border: 1px solid #444; background: #2a2a3e; color: var(--fg); }
+        input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+        button { background: var(--accent); border: none; cursor: pointer; }
+        button:hover { opacity: 0.9; }
+        .btn-secondary { background: #444; }
+        .status { padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.85rem; }
+        .status-concept { background: #555; }
+        .status-prototyping { background: #886600; }
+        .status-pqa, .status-iqa { background: #006688; }
+        .status-augmenting { background: #224488; }
+        .status-done { background: #227722; }
+        .status-abandoned { background: #772222; }
+        .comment { background: #2a2a3e; padding: 0.75rem; margin: 0.5rem 0; border-radius: 4px; }
+        .comment-meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.25rem; }
+        .actions { display: flex; gap: 0.5rem; margin: 1rem 0; }
+        .meta { color: var(--muted); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <a href="/">Issues</a>
+            <a href="/new">New Issue</a>
+            <span class="meta" style="float:right">{{ user }}</span>
+        </nav>
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
