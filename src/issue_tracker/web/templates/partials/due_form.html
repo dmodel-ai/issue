@@ -1,0 +1,17 @@
+<div id="due-editor" class="due-editor">
+    <form hx-post="/issue/{{ num(issue['id']) }}/due" hx-swap="none" hx-on::after-request="location.reload()">
+        <div class="due-header">
+            <strong>#{{ num(issue['id']) }}</strong> {{ issue.get('alias', '') or issue['title'][:20] }}
+            <button type="button" onclick="document.getElementById('due-editor').innerHTML=''">&times;</button>
+        </div>
+        {% for phase in phases %}
+        <div class="due-row">
+            <label>{{ phase }}</label>
+            <input type="date" name="due_{{ phase }}" value="{{ due.get(phase, '')[:10] if due.get(phase) else '' }}">
+        </div>
+        {% endfor %}
+        <div class="due-actions">
+            <button type="submit">Save</button>
+        </div>
+    </form>
+</div>

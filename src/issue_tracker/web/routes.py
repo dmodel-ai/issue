@@ -101,7 +101,7 @@ def _parse_date(s):
 
 
 @router.get("/gantt", response_class=HTMLResponse)
-async def gantt_view(request: Request, q: str = "-status:done", weeks: int = 4):
+async def gantt_view(request: Request, q: str = "-status:done", start: str = "", end: str = ""):
     all_iss = all_issues()
     if q:
         all_iss = filter_issues(all_iss, q)
@@ -110,15 +110,41 @@ async def gantt_view(request: Request, q: str = "-status:done", weeks: int = 4):
               for i in all_iss if not i.get('due')]
 
     today = date.today()
-    start_date = today - timedelta(days=today.weekday())
-    end_date = start_date + timedelta(weeks=weeks)
+
+    # Parse start/end or use smart defaults based on issue dates
+    if start:
+        start_date = _parse_date(start) or today
+    else:
+        # Default: earliest issue date or start of current week
+        all_dates = []
+        for i in issues:
+            all_dates.extend(_parse_date(d) for d in i.get('due', {}).values() if _parse_date(d))
+        start_date = min(all_dates) if all_dates else today
+        start_date = start_date - timedelta(days=start_date.weekday())  # Align to Monday
+
+    if end:
+        end_date = _parse_date(end) or (start_date + timedelta(weeks=4))
+    else:
+        # Default: 4 weeks after start or latest issue date + 1 week
+        all_dates = []
+        for i in issues:
+            all_dates.extend(_parse_date(d) for d in i.get('due', {}).values() if _parse_date(d))
+        if all_dates:
+            end_date = max(all_dates) + timedelta(weeks=1)
+        else:
+            end_date = start_date + timedelta(weeks=4)
+
     total_days = (end_date - start_date).days
+    if total_days <= 0:
+        total_days = 28
+        end_date = start_date + timedelta(days=total_days)
 
     week_headers = []
     d = start_date
     while d < end_date:
         week_headers.append(d.strftime('%m/%d'))
         d += timedelta(weeks=1)
+    num_weeks = len(week_headers) or 1
 
     today_pct = ((today - start_date).days / total_days) * 100 if total_days else 0
 
@@ -148,16 +174,20 @@ async def gantt_view(request: Request, q: str = "-status:done", weeks: int = 4):
 
         bar_left = pct(first_date) or 0
         bar_right = pct(last_date) or bar_left
+        owner = i.get('owner', '')
         bars.append({
             'num': num(i['id']),
             'label': alias,
             'status': 'done' if is_done else 'behind' if any_behind else i['status'],
+            'owner': owner,
             'left': bar_left,
             'width': max(2, bar_right - bar_left),
             'phases': [],
         })
 
         # Add phase sub-bars
+        reviewers = i.get('reviewers', [])
+        reviewer = reviewers[0] if reviewers else owner
         for idx, (state, start) in enumerate(phases):
             if idx + 1 < len(phases):
                 end = phases[idx + 1][1]
@@ -168,15 +198,19 @@ async def gantt_view(request: Request, q: str = "-status:done", weeks: int = 4):
             behind = start and today > start and current_idx < phase_idx
             phase_left = pct(start) or 0
             phase_right = pct(end) or phase_left
+            is_review = state in ('pqa', 'iqa')
             bars[-1]['phases'].append({
                 'state': state,
                 'status': 'done' if phase_done else 'behind' if behind else state,
+                'owner': owner,
+                'reviewer': reviewer if is_review else None,
                 'left': phase_left,
                 'width': max(2, phase_right - phase_left),
             })
 
     return templates.TemplateResponse("gantt.html", _ctx(
-        request, bars=bars, weeks=week_headers, today_pct=today_pct, query=q, num_weeks=weeks,
+        request, bars=bars, weeks=week_headers, today_pct=today_pct, query=q,
+        start_str=start_date.isoformat(), end_str=end_date.isoformat(), num_weeks=num_weeks,
         phases=phase_order, start_date=start_date.isoformat(), total_days=total_days, no_due=no_due
     ))
 

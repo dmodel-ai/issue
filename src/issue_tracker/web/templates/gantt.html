@@ -3,7 +3,16 @@
 {% block content %}
 <form method="get" action="/gantt" class="gantt-form">
     <input type="text" name="q" placeholder="Filter..." value="{{ query }}" onchange="this.form.submit()">
-    <label>Weeks <input type="number" name="weeks" value="{{ num_weeks }}" min="1" max="52" onchange="this.form.submit()"></label>
+    <input type="date" name="start" value="{{ start_str }}" onchange="this.form.submit()">
+    <span class="meta">to</span>
+    <input type="date" name="end" value="{{ end_str }}" onchange="this.form.submit()">
+    <div class="gantt-legend">
+        <span class="legend-item owner-alex">alex</span>
+        <span class="legend-item owner-anish">anish</span>
+        <span class="legend-item owner-adam">adam</span>
+        <span class="legend-item owner-dmoon">dmoon</span>
+        <span class="legend-item owner-curry">curry</span>
+    </div>
 </form>
 {% if bars %}
 <div class="gantt-container">
@@ -11,7 +20,7 @@
     <div class="gantt-header">
         <span class="gantt-label"></span>
         <div class="gantt-track">
-            {% for week in weeks %}<span class="gantt-week">{{ week }}</span>{% endfor %}
+            {% for week in weeks %}<span class="gantt-week" style="width:calc(100%/{{ num_weeks }})">{{ week }}</span>{% endfor %}
         </div>
     </div>
     <div class="gantt-grid">
@@ -25,7 +34,7 @@
     <div class="gantt-row">
         <a href="/issue/{{ bar.num }}" class="gantt-label">{{ bar.label }}</a>
         <div class="gantt-track">
-            <div class="gantt-bar status-{{ bar.status }}" data-issue="{{ bar.num }}"
+            <div class="gantt-bar owner-{{ bar.owner }}" data-issue="{{ bar.num }}"
                  style="left:{{ bar.left }}%; width:{{ bar.width }}%">
                 <div class="gantt-handle gantt-handle-left"></div>
                 <div class="gantt-handle gantt-handle-right"></div>
@@ -36,7 +45,7 @@
     <div class="gantt-row gantt-phase">
         <span class="gantt-label gantt-phase-label">{{ phase.state }}</span>
         <div class="gantt-track">
-            <div class="gantt-bar gantt-bar-phase status-{{ phase.status }}"
+            <div class="gantt-bar gantt-bar-phase owner-{{ phase.owner }}{% if phase.reviewer %} reviewer-{{ phase.reviewer }}{% endif %}"
                  data-issue="{{ bar.num }}" data-phase="{{ phase.state }}"
                  style="left:{{ phase.left }}%; width:{{ phase.width }}%">
                 <div class="gantt-handle gantt-handle-left"></div>

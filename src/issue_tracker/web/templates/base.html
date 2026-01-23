@@ -38,12 +38,13 @@
         .gantt-form input[type="text"] { width: 200px; }
         .gantt-form input[type="number"] { width: 50px; margin-left: 0.25rem; }
         .gantt-form label { color: var(--muted); font-size: 0.9rem; }
+        .gantt-legend { display: flex; gap: 0.5rem; margin-left: auto; }
+        .legend-item { padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.75rem; color: #fff; }
         .gantt { position: relative; margin-top: 0.5rem; }
         .gantt-header { display: flex; border-bottom: 1px solid #444; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
         .gantt-row { display: flex; height: 26px; align-items: center; }
-        .gantt-row:hover { background: rgba(255,255,255,0.03); }
         .gantt-label { width: 120px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; }
-        .gantt-track { flex: 1; position: relative; height: 18px; background: rgba(255,255,255,0.02); border-radius: 2px; }
+        .gantt-track { flex: 1; position: relative; height: 18px; }
         .gantt-bar { position: absolute; height: 100%; border-radius: 2px; min-width: 4px; cursor: grab; }
         .gantt-bar.dragging { opacity: 0.7; cursor: grabbing; }
         .gantt-handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
@@ -53,13 +54,44 @@
         .gantt-today { position: absolute; width: 1px; background: rgba(255,220,0,0.6); top: 2.5rem; bottom: 0; z-index: 10; pointer-events: none; }
         .gantt-grid { display: flex; height: 0; overflow: visible; pointer-events: none; }
         .gantt-grid .gantt-track { height: 1000px; }
-        .gantt-day { position: absolute; top: 0; height: 100%; width: 1px; background: rgba(255,255,255,0.06); }
-        .gantt-day-week { background: rgba(255,255,255,0.15); }
+        .gantt-day { position: absolute; top: 0; height: 100%; width: 1px; background: rgba(255,255,255,0.03); }
+        .gantt-day-week { background: rgba(255,255,255,0.08); }
         .gantt-week { display: inline-block; width: calc(100% / 4); font-size: 0.8rem; color: var(--muted); }
-        .gantt-phase { height: 20px; opacity: 0.7; }
+        .gantt-phase { height: 20px; }
         .gantt-phase-label { padding-left: 0.75rem; font-size: 0.75rem; color: #666; }
         .gantt-phase .gantt-track { height: 12px; }
         .status-behind { background: #994400; }
+        .gantt-bar { background: #4466aa; }
+        .owner-alex, .legend-item.owner-alex { background: #aa4444; }
+        .owner-anish, .legend-item.owner-anish { background: #aa44aa; }
+        .owner-adam, .legend-item.owner-adam { background: #44aa44; }
+        .owner-dmoon, .legend-item.owner-dmoon { background: #44aaaa; }
+        .owner-curry, .legend-item.owner-curry { background: #aaaa44; }
+        .owner-alex.reviewer-alex { background: #aa4444; }
+        .owner-alex.reviewer-anish { background: repeating-linear-gradient(45deg, #aa4444, #aa4444 6px, #aa44aa 6px, #aa44aa 12px); }
+        .owner-alex.reviewer-adam { background: repeating-linear-gradient(45deg, #aa4444, #aa4444 6px, #44aa44 6px, #44aa44 12px); }
+        .owner-alex.reviewer-dmoon { background: repeating-linear-gradient(45deg, #aa4444, #aa4444 6px, #44aaaa 6px, #44aaaa 12px); }
+        .owner-alex.reviewer-curry { background: repeating-linear-gradient(45deg, #aa4444, #aa4444 6px, #aaaa44 6px, #aaaa44 12px); }
+        .owner-anish.reviewer-alex { background: repeating-linear-gradient(45deg, #aa44aa, #aa44aa 6px, #aa4444 6px, #aa4444 12px); }
+        .owner-anish.reviewer-anish { background: #aa44aa; }
+        .owner-anish.reviewer-adam { background: repeating-linear-gradient(45deg, #aa44aa, #aa44aa 6px, #44aa44 6px, #44aa44 12px); }
+        .owner-anish.reviewer-dmoon { background: repeating-linear-gradient(45deg, #aa44aa, #aa44aa 6px, #44aaaa 6px, #44aaaa 12px); }
+        .owner-anish.reviewer-curry { background: repeating-linear-gradient(45deg, #aa44aa, #aa44aa 6px, #aaaa44 6px, #aaaa44 12px); }
+        .owner-adam.reviewer-alex { background: repeating-linear-gradient(45deg, #44aa44, #44aa44 6px, #aa4444 6px, #aa4444 12px); }
+        .owner-adam.reviewer-anish { background: repeating-linear-gradient(45deg, #44aa44, #44aa44 6px, #aa44aa 6px, #aa44aa 12px); }
+        .owner-adam.reviewer-adam { background: #44aa44; }
+        .owner-adam.reviewer-dmoon { background: repeating-linear-gradient(45deg, #44aa44, #44aa44 6px, #44aaaa 6px, #44aaaa 12px); }
+        .owner-adam.reviewer-curry { background: repeating-linear-gradient(45deg, #44aa44, #44aa44 6px, #aaaa44 6px, #aaaa44 12px); }
+        .owner-dmoon.reviewer-alex { background: repeating-linear-gradient(45deg, #44aaaa, #44aaaa 6px, #aa4444 6px, #aa4444 12px); }
+        .owner-dmoon.reviewer-anish { background: repeating-linear-gradient(45deg, #44aaaa, #44aaaa 6px, #aa44aa 6px, #aa44aa 12px); }
+        .owner-dmoon.reviewer-adam { background: repeating-linear-gradient(45deg, #44aaaa, #44aaaa 6px, #44aa44 6px, #44aa44 12px); }
+        .owner-dmoon.reviewer-dmoon { background: #44aaaa; }
+        .owner-dmoon.reviewer-curry { background: repeating-linear-gradient(45deg, #44aaaa, #44aaaa 6px, #aaaa44 6px, #aaaa44 12px); }
+        .owner-curry.reviewer-alex { background: repeating-linear-gradient(45deg, #aaaa44, #aaaa44 6px, #aa4444 6px, #aa4444 12px); }
+        .owner-curry.reviewer-anish { background: repeating-linear-gradient(45deg, #aaaa44, #aaaa44 6px, #aa44aa 6px, #aa44aa 12px); }
+        .owner-curry.reviewer-adam { background: repeating-linear-gradient(45deg, #aaaa44, #aaaa44 6px, #44aa44 6px, #44aa44 12px); }
+        .owner-curry.reviewer-dmoon { background: repeating-linear-gradient(45deg, #aaaa44, #aaaa44 6px, #44aaaa 6px, #44aaaa 12px); }
+        .owner-curry.reviewer-curry { background: #aaaa44; }
         .no-due-section { margin-top: 1.5rem; border-top: 1px solid #333; padding-top: 1rem; }
         .no-due-header { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
         .no-due-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
