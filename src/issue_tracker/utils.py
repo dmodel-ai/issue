@@ -4,9 +4,12 @@ from datetime import datetime
 from pathlib import Path
 
 
+class IssueError(Exception):
+    pass
+
+
 def die(msg):
-    print(msg, file=sys.stderr)
-    sys.exit(1)
+    raise IssueError(msg)
 
 def edit(initial=""):
     editor = os.environ.get("EDITOR", "vi")

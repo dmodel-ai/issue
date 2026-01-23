@@ -3,7 +3,7 @@ import argparse
 import inspect
 import sys
 
-from ..utils import die
+from ..utils import die, IssueError
 from ..tui import cmd_tui
 from ..workflows import workflow
 from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_gantt, cmd_default
@@ -34,6 +34,14 @@ CMDS = STATIC_CMDS + list(workflow.transitions.keys())
 
 
 def main():
+    try:
+        _main()
+    except IssueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+
+def _main():
     if len(sys.argv) > 1 and sys.argv[1].isdigit():
         sys.argv.insert(1, "edit")
 
