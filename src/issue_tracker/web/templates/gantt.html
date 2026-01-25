@@ -158,8 +158,7 @@
             fetch('/gantt/drag/' + dragging.issue, {
                 method: 'POST',
                 body: form
-            }).then(() => location.reload())
-              .catch(err => console.error('Save error', err));
+            }).catch(err => console.error('Save error', err));
         }
 
         dragging = null;

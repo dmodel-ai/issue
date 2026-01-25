@@ -1,5 +1,5 @@
 <div id="due-editor" class="due-editor">
-    <form hx-post="/issue/{{ num(issue['id']) }}/due" hx-swap="none" hx-on::after-request="location.reload()">
+    <form hx-post="/issue/{{ num(issue['id']) }}/due" hx-swap="none">
         <div class="due-header">
             <strong>#{{ num(issue['id']) }}</strong> {{ issue.get('alias', '') or issue['title'][:20] }}
             <button type="button" onclick="document.getElementById('due-editor').innerHTML=''">&times;</button>

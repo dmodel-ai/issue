@@ -10,8 +10,87 @@ from ..workflows import workflow, transition, status_colors, INITIAL_STATE, phas
 from ..query import filter_issues
 from ..utils import user, now, ago
 from uuid_utils import uuid7
+import time
+import threading
+import sys
 
 router = APIRouter()
+
+# Web-only cache for all_issues() - CLI bypasses this
+_cache = {"issues": None, "ts": 0}
+_CACHE_TTL = 30
+
+
+def _get_issues():
+    if _cache["issues"] and time.time() - _cache["ts"] < _CACHE_TTL:
+        return list(_cache["issues"])
+    issues = all_issues()
+    _cache["issues"], _cache["ts"] = issues, time.time()
+    return issues
+
+
+def _invalidate_cache():
+    _cache["issues"] = None
+
+
+def _save_background(issue):
+    """Non-blocking save for web - optimistically updates cache, saves in background."""
+    if _cache["issues"] is not None:
+        found = False
+        for i, cached in enumerate(_cache["issues"]):
+            if cached['id'] == issue['id']:
+                _cache["issues"][i] = issue
+                found = True
+                break
+        if not found:
+            _cache["issues"].append(issue)
+
+    def do_save():
+        try:
+            save(issue)
+        except Exception as e:
+            print(f"Background save error: {e}", file=sys.stderr)
+            _invalidate_cache()
+
+    threading.Thread(target=do_save, daemon=True).start()
+
+
+def _fetch_cached(ref):
+    """Fetch issue using cache instead of hitting git."""
+    issues = _get_issues()
+    # Build index from cache
+    idx = {n+1: iss['id'] for n, iss in enumerate(sorted(issues, key=lambda i: i['id']))}
+
+    # Resolve ref to id
+    if ref.isdigit():
+        issue_id = idx.get(int(ref))
+    elif len(ref) == 32:
+        issue_id = ref
+    else:
+        # Alias lookup
+        issue_id = None
+        for iss in issues:
+            if iss.get('alias') == ref:
+                issue_id = iss['id']
+                break
+        if not issue_id:
+            matches = [i for i in issues if (i.get('alias') or '').startswith(ref)]
+            if len(matches) == 1:
+                issue_id = matches[0]['id']
+
+    if not issue_id:
+        from ..utils import die
+        die(f"Issue #{ref} not found")
+
+    # Find issue in cache
+    for iss in issues:
+        if iss['id'] == issue_id:
+            return issue_id, iss
+
+    from ..utils import die
+    die(f"Issue #{ref} not found")
+
+
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
@@ -23,7 +102,7 @@ def _ctx(request: Request, **kwargs):
 
 @router.get("/", response_class=HTMLResponse)
 async def list_issues(request: Request, q: str = ""):
-    issues = all_issues()
+    issues = _get_issues()
     if q:
         issues = filter_issues(issues, q)
     issues = sorted(issues, key=lambda i: (-i.get('priority', 0), i['updated']), reverse=True)
@@ -55,13 +134,13 @@ async def create_issue(title: str = Form(...), owner: str = Form(None),
         issue["reviewers"] = [r.strip() for r in reviewers.split(",") if r.strip()]
     if labels.strip():
         issue["labels"] = [l.strip() for l in labels.split(",") if l.strip()]
-    save(issue)
+    _save_background(issue)
     return RedirectResponse(f"/issue/{num(issue['id'])}", status_code=303)
 
 
 @router.get("/issue/{ref}", response_class=HTMLResponse)
 async def show_issue(request: Request, ref: str):
-    _, issue = fetch(ref)
+    _, issue = _fetch_cached(ref)
     # Get available transitions for current status
     actions = []
     for name, t in workflow.transitions.items():
@@ -73,10 +152,10 @@ async def show_issue(request: Request, ref: str):
 
 @router.post("/issue/{ref}/comment")
 async def add_comment(request: Request, ref: str, text: str = Form(...)):
-    id, issue = fetch(ref)
+    id, issue = _fetch_cached(ref)
     transition(issue, "comment", u=user(), text=text)
     issue["updated"] = now()
-    save(issue)
+    _save_background(issue)
     # Return just comments partial for htmx
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/comments.html",
@@ -86,10 +165,10 @@ async def add_comment(request: Request, ref: str, text: str = Form(...)):
 
 @router.post("/issue/{ref}/transition/{action}")
 async def do_transition(ref: str, action: str):
-    id, issue = fetch(ref)
+    id, issue = _fetch_cached(ref)
     transition(issue, action, u=user())
     issue["updated"] = now()
-    save(issue)
+    _save_background(issue)
     return RedirectResponse(f"/issue/{num(id)}", status_code=303)
 
 
@@ -102,7 +181,7 @@ def _parse_date(s):
 
 @router.get("/gantt", response_class=HTMLResponse)
 async def gantt_view(request: Request, q: str = "-status:done", start: str = "", end: str = ""):
-    all_iss = all_issues()
+    all_iss = _get_issues()
     if q:
         all_iss = filter_issues(all_iss, q)
     issues = [i for i in all_iss if i.get('due')]
@@ -217,7 +296,7 @@ async def gantt_view(request: Request, q: str = "-status:done", start: str = "",
 
 @router.get("/issue/{ref}/due", response_class=HTMLResponse)
 async def edit_due_form(request: Request, ref: str):
-    id, issue = fetch(ref)
+    id, issue = _fetch_cached(ref)
     due = issue.get('due', {})
     return templates.TemplateResponse("partials/due_form.html", _ctx(
         request, issue=issue, phases=phase_order, due=due
@@ -226,7 +305,7 @@ async def edit_due_form(request: Request, ref: str):
 
 @router.post("/issue/{ref}/due")
 async def update_due(request: Request, ref: str):
-    id, issue = fetch(ref)
+    id, issue = _fetch_cached(ref)
     form = await request.form()
     due = issue.get('due', {})
     for phase in phase_order:
@@ -237,7 +316,7 @@ async def update_due(request: Request, ref: str):
             del due[phase]
     issue['due'] = due
     issue['updated'] = now()
-    save(issue)
+    _save_background(issue)
     if request.headers.get("HX-Request"):
         return HTMLResponse('<div hx-swap-oob="true" id="due-editor"></div>')
     return RedirectResponse(f"/gantt", status_code=303)
@@ -245,7 +324,7 @@ async def update_due(request: Request, ref: str):
 
 @router.post("/gantt/drag/{ref}")
 async def drag_due(request: Request, ref: str):
-    id, issue = fetch(ref)
+    id, issue = _fetch_cached(ref)
     form = await request.form()
     due = issue.get('due', {})
 
@@ -301,5 +380,5 @@ async def drag_due(request: Request, ref: str):
     if changed:
         issue['due'] = due
         issue['updated'] = now()
-        save(issue)
+        _save_background(issue)
     return HTMLResponse('ok')
