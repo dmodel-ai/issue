@@ -35,15 +35,18 @@ def _invalidate_cache():
 
 def _save_background(issue):
     """Non-blocking save for web - optimistically updates cache, saves in background."""
-    if _cache["issues"] is not None:
-        found = False
-        for i, cached in enumerate(_cache["issues"]):
-            if cached['id'] == issue['id']:
-                _cache["issues"][i] = issue
-                found = True
-                break
-        if not found:
-            _cache["issues"].append(issue)
+    # Ensure cache is populated so we can add the new issue
+    if _cache["issues"] is None:
+        _get_issues()
+
+    found = False
+    for i, cached in enumerate(_cache["issues"]):
+        if cached['id'] == issue['id']:
+            _cache["issues"][i] = issue
+            found = True
+            break
+    if not found:
+        _cache["issues"].append(issue)
 
     def do_save():
         try:
@@ -53,6 +56,16 @@ def _save_background(issue):
             _invalidate_cache()
 
     threading.Thread(target=do_save, daemon=True).start()
+
+
+def _num_cached(issue_id):
+    """Get issue number from cache instead of hitting git."""
+    issues = _get_issues()
+    sorted_ids = sorted(iss['id'] for iss in issues)
+    try:
+        return sorted_ids.index(issue_id) + 1
+    except ValueError:
+        return 0
 
 
 def _fetch_cached(ref):
@@ -135,7 +148,7 @@ async def create_issue(title: str = Form(...), owner: str = Form(None),
     if labels.strip():
         issue["labels"] = [l.strip() for l in labels.split(",") if l.strip()]
     _save_background(issue)
-    return RedirectResponse(f"/issue/{num(issue['id'])}", status_code=303)
+    return RedirectResponse(f"/issue/{_num_cached(issue['id'])}", status_code=303)
 
 
 @router.get("/issue/{ref}", response_class=HTMLResponse)
