@@ -25,8 +25,9 @@
 {% include "partials/comments.html" %}
 </div>
 
-<form hx-post="/issue/{{ num(issue['id']) }}/comment" hx-target="#comments" hx-swap="innerHTML">
-    <textarea name="text" rows="3" style="width: 100%;" placeholder="Add a comment..."></textarea><br>
+<form hx-post="/issue/{{ num(issue['id']) }}/comment" hx-target="#comments" hx-swap="innerHTML" id="comment-form">
+    <textarea name="text" rows="3" style="width: 100%;" placeholder="Add a comment... (Ctrl+Enter to submit)"
+        onkeydown="if(event.ctrlKey && event.key==='Enter'){event.preventDefault();this.form.requestSubmit()}"></textarea><br>
     <button type="submit" style="margin-top: 0.5rem;">Comment</button>
 </form>
 {% endblock %}
