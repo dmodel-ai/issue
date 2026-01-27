@@ -8,7 +8,7 @@ from pathlib import Path
 from ..store import all_issues, fetch, save, num, resolve
 from ..workflows import workflow, transition, status_colors, INITIAL_STATE, phase_order, DONE_STATE
 from ..query import filter_issues
-from ..utils import user, now, ago
+from ..utils import now, ago
 from .auth import AUTH_ENABLED, oauth, get_user as auth_get_user
 from uuid_utils import uuid7
 import time
@@ -130,9 +130,9 @@ async def new_issue_form(request: Request):
 
 
 @router.post("/new")
-async def create_issue(title: str = Form(...), owner: str = Form(None),
+async def create_issue(request: Request, title: str = Form(...), owner: str = Form(None),
                        reviewers: str = Form(""), labels: str = Form("")):
-    u = user()
+    u = auth_get_user(request)
     issue = {
         "id": uuid7().hex,
         "title": title,
@@ -168,7 +168,7 @@ async def show_issue(request: Request, ref: str):
 @router.post("/issue/{ref}/comment")
 async def add_comment(request: Request, ref: str, text: str = Form(...)):
     id, issue = _fetch_cached(ref)
-    transition(issue, "comment", u=user(), text=text)
+    transition(issue, "comment", u=auth_get_user(request), text=text)
     issue["updated"] = now()
     _save_background(issue)
     # Return just comments partial for htmx
@@ -179,9 +179,9 @@ async def add_comment(request: Request, ref: str, text: str = Form(...)):
 
 
 @router.post("/issue/{ref}/transition/{action}")
-async def do_transition(ref: str, action: str):
+async def do_transition(request: Request, ref: str, action: str):
     id, issue = _fetch_cached(ref)
-    transition(issue, action, u=user())
+    transition(issue, action, u=auth_get_user(request))
     issue["updated"] = now()
     _save_background(issue)
     return RedirectResponse(f"/issue/{num(id)}", status_code=303)
