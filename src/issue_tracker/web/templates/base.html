@@ -120,7 +120,17 @@
             <a href="/">Issues</a>
             <a href="/gantt">Gantt</a>
             <a href="/new">New Issue</a>
-            <span class="meta" style="float:right">{{ user }}</span>
+            <span class="meta" style="float:right">
+                {% if auth_enabled %}
+                    {% if user %}
+                        {{ user }} | <a href="/logout">Logout</a>
+                    {% else %}
+                        <a href="/login">Login</a>
+                    {% endif %}
+                {% else %}
+                    {{ user }}
+                {% endif %}
+            </span>
         </nav>
         {% block content %}{% endblock %}
     </div>

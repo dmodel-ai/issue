@@ -9,6 +9,7 @@ from ..store import all_issues, fetch, save, num, resolve
 from ..workflows import workflow, transition, status_colors, INITIAL_STATE, phase_order, DONE_STATE
 from ..query import filter_issues
 from ..utils import user, now, ago
+from .auth import AUTH_ENABLED, oauth, get_user as auth_get_user
 from uuid_utils import uuid7
 import time
 import threading
@@ -109,7 +110,8 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 def _ctx(request: Request, **kwargs):
     """Build template context with common data."""
-    return {"request": request, "user": user(), "status_colors": status_colors,
+    return {"request": request, "user": auth_get_user(request),
+            "auth_enabled": AUTH_ENABLED, "status_colors": status_colors,
             "ago": ago, "num": num, **kwargs}
 
 
@@ -395,3 +397,33 @@ async def drag_due(request: Request, ref: str):
         issue['updated'] = now()
         _save_background(issue)
     return HTMLResponse('ok')
+
+
+@router.get("/login")
+async def login(request: Request):
+    """Redirect to Google OAuth."""
+    if not AUTH_ENABLED:
+        return RedirectResponse("/", status_code=302)
+    redirect_uri = request.url_for("auth_callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/auth/callback")
+async def auth_callback(request: Request):
+    """Handle OAuth callback from Google."""
+    if not AUTH_ENABLED:
+        return RedirectResponse("/", status_code=302)
+    token = await oauth.google.authorize_access_token(request)
+    userinfo = token.get("userinfo", {})
+    email = userinfo.get("email", "")
+    request.session["user"] = email.split("@")[0] if email else ""
+    return RedirectResponse("/", status_code=302)
+
+
+@router.get("/logout")
+async def logout(request: Request):
+    """Clear session and redirect to login."""
+    request.session.clear()
+    if AUTH_ENABLED:
+        return RedirectResponse("/login", status_code=302)
+    return RedirectResponse("/", status_code=302)
