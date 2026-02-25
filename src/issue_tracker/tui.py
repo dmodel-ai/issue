@@ -85,9 +85,13 @@ def cmd_tui(_):
                 )
 
         def get_selected_id(self):
+            from textual.widgets.data_table import RowDoesNotExist
             table = self.query_one("#issues", DataTable)
             if table.cursor_row is not None:
-                return table.get_row_at(table.cursor_row)[0].lstrip('#')
+                try:
+                    return table.get_row_at(table.cursor_row)[0].lstrip('#')
+                except RowDoesNotExist:
+                    return None
             return None
 
         def on_data_table_row_selected(self, event):
