@@ -194,7 +194,7 @@ def cmd_comment(args, note: bool = False):
 
     transition(issue, "note" if note else "comment", u=user(), text=text)
     save(issue)
-    print(f"{"Noted" if note else "Commented"} on #{num(id)}")
+    print(f"{'Noted' if note else 'Commented'} on #{num(id)}")
     print(f"Attention: {', '.join(issue['attention'])}")
 
 
