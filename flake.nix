@@ -45,7 +45,7 @@
       pythonSets = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          python = pkgs.python312;
+          python = pkgs.python311;
           pythonBase = pkgs.callPackage pyproject-nix.build.packages {
             inherit python;
           };
