@@ -1,5 +1,7 @@
 """Commands: create, comment, update, link, pick."""
-import os, subprocess, tempfile
+import os
+import subprocess
+import tempfile
 import uuid_utils as uuid
 import yaml
 from pathlib import Path
@@ -286,7 +288,7 @@ def cmd_pick(args):
 
     try:
         result = subprocess.run(
-            ["fzf", "--with-nth=2..", "--delimiter=\t", "--preview", f"issue show {{1}}"],
+            ["fzf", "--with-nth=2..", "--delimiter=\t", "--preview", "issue show {{1}}"],
             input='\n'.join(lines), capture_output=True, text=True
         )
         if result.returncode == 0 and result.stdout.strip():
