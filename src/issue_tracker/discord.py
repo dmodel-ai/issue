@@ -6,6 +6,75 @@ import urllib.request
 import urllib.error
 
 
+_TEAM_API_URL = "https://api.github.com/repos/dmodel-ai/discord-logseq-bot/contents/team.json"
+_team_cache = None
+
+
+def _get_gh_token():
+    """Get GitHub token from environment or gh CLI config."""
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        return token
+    try:
+        import subprocess
+        result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except Exception:
+        return None
+
+
+def _get_team():
+    """Fetch team mapping from GitHub API (cached for process lifetime)."""
+    global _team_cache
+    if _team_cache is not None:
+        return _team_cache
+    token = _get_gh_token()
+    if not token:
+        print("Warning: no GitHub token available, Discord pings disabled", file=sys.stderr)
+        _team_cache = {"discord_user_ids": {}, "email_aliases": {}}
+        return _team_cache
+    try:
+        import base64
+        req = urllib.request.Request(_TEAM_API_URL, headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "issue-tracker/1.0",
+        })
+        resp = urllib.request.urlopen(req, timeout=5)
+        data = json.loads(resp.read())
+        raw = json.loads(base64.b64decode(data["content"]))
+        # Derive email-prefix aliases from the emails table
+        aliases = {}
+        for cname, emails in raw.get("emails", {}).items():
+            for email in emails:
+                aliases[email.split("@")[0]] = cname
+        _team_cache = {"discord_user_ids": raw["discord_user_ids"], "email_aliases": aliases}
+    except Exception as e:
+        print(f"Warning: failed to fetch team.json: {e}", file=sys.stderr)
+        _team_cache = {"discord_user_ids": {}, "email_aliases": {}}
+    return _team_cache
+
+
+def _resolve_discord_id(name: str) -> str | None:
+    """Resolve a name or email prefix to a Discord user ID."""
+    team = _get_team()
+    ids = team["discord_user_ids"]
+    if name in ids:
+        return ids[name]
+    canonical = team["email_aliases"].get(name)
+    if canonical:
+        return ids.get(canonical)
+    return None
+
+
+def _pings(issue: dict) -> str:
+    """Return Discord mention string for everyone in the attention set."""
+    names = issue.get("attention", [])
+    ids = {_resolve_discord_id(n) for n in names}
+    ids.discard(None)
+    return " ".join(f"<@{did}>" for did in ids)
+
+
 def _in_test():
     """Check if running under pytest."""
     return "pytest" in sys.modules
@@ -24,7 +93,7 @@ def _get_webhook_url():
         _webhook_url_cache = url
         return url
 
-    secret_name = os.environ.get("ISSUE_DISCORD_SECRET", "issue-tracker/test-plain")
+    secret_name = os.environ.get("ISSUE_DISCORD_SECRET", "issue-tracker/qa-updates")
     try:
         import boto3
     except ImportError:
@@ -80,23 +149,27 @@ def notify_issue_change(issue: dict, old_issue: dict | None = None):
     """Notify about an issue change."""
     from .store import num
     ref = issue.get('alias') or f"#{num(issue['id'])}"
-    title = issue.get('title', '')[:50]
+    raw_title = issue.get('title', '')
+    title = raw_title[:50] + ("..." if len(raw_title) > 50 else "")
+
+    pings = _pings(issue)
 
     if old_issue is None:
-        notify(f"**New issue** {ref}: {title}")
+        notify(f"**New issue** {ref}: {title} {pings}")
         return
 
     old_status = old_issue.get('status')
     new_status = issue.get('status')
     if old_status != new_status:
-        notify(f"**{ref}** {old_status} -> {new_status}: {title}")
+        notify(f"**{ref}** {old_status} -> {new_status}: {title} {pings}")
         return
 
     old_comments = old_issue.get('comments', [])
     new_comments = issue.get('comments', [])
     if len(new_comments) > len(old_comments):
         c = new_comments[-1]
-        notify(f"**{ref}** comment by {c['author']}: {c['text'][:100]}")
+        text = c['text'][:100] + ("..." if len(c['text']) > 100 else "")
+        notify(f"**{ref}** comment by {c['author']}: {text} {pings}")
         return
 
-    notify(f"**{ref}** updated: {title}")
+    notify(f"**{ref}** updated: {title} {pings}")

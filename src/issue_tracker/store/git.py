@@ -37,9 +37,12 @@ MERGE_STRATEGY = {
 # =============================================================================
 
 def _git(*args, input=None, check=False, strip=True):
-    r = subprocess.run(["git", *args], capture_output=True, text=True, input=input)
+    cmd = ["git", *args]
+    r = subprocess.run(cmd, capture_output=True, text=True, input=input)
     if check and r.returncode != 0:
-        raise subprocess.CalledProcessError(r.returncode, args)
+        print("STDOUT:\n", r.stdout)
+        print("STDERR:\n", r.stderr)
+        raise subprocess.CalledProcessError(r.returncode, cmd)
     return (r.stdout.strip() if strip else r.stdout) if r.returncode == 0 else None
 
 def _git_list():
@@ -122,7 +125,7 @@ def _try_fetch(quiet=False):
         return False
     if not quiet:
         print("Fetching from remote...", file=sys.stderr, end="", flush=True)
-    result = _git("fetch", REMOTE, f"{BRANCH}:{REMOTE_REF}") is not None
+    result = _git("fetch", REMOTE, f"{BRANCH}:{REMOTE_REF}", check=True) is not None
     if not quiet:
         print(" done" if result else " failed", file=sys.stderr)
     return result
@@ -407,7 +410,10 @@ def save(issue):
     content = yaml.dump(issue, default_flow_style=False, sort_keys=False)
     _write_local(filename, content, _commit_msg(issue, old_issue=old_issue))
     _try_sync(filename)
-    notify_issue_change(issue, old_issue)
+    old_attn = set(old_issue.get("attention", [])) if old_issue else set()
+    new_attn = set(issue.get("attention", []))
+    if new_attn != old_attn:
+        notify_issue_change(issue, old_issue)
 
 
 def all_issues():
@@ -445,4 +451,7 @@ def write_raw(id, content):
 
     # Try to sync with remote
     _try_sync(filename)
-    notify_issue_change(commit_issue, old_issue)
+    old_attn = set(old_issue.get("attention", [])) if old_issue else set()
+    new_attn = set(commit_issue.get("attention", []))
+    if new_attn != old_attn:
+        notify_issue_change(commit_issue, old_issue)
