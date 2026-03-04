@@ -9,6 +9,14 @@ import urllib.error
 _TEAM_API_URL = "https://api.github.com/repos/dmodel-ai/discord-logseq-bot/contents/team.json"
 _team_cache = None
 
+# Extra Discord users not in the logseq bot's team.json
+_EXTRA_DISCORD_IDS = {
+    "kunal": "1368985626913013841",
+}
+_EXTRA_EMAILS = {
+    "kunal": ["kunal@dmodel.ai"],
+}
+
 
 def _get_gh_token():
     """Get GitHub token from environment or gh CLI config."""
@@ -31,7 +39,8 @@ def _get_team():
     token = _get_gh_token()
     if not token:
         print("Warning: no GitHub token available, Discord pings disabled", file=sys.stderr)
-        _team_cache = {"discord_user_ids": {}, "email_aliases": {}}
+        extra_aliases = {e.split("@")[0]: n for n, emails in _EXTRA_EMAILS.items() for e in emails}
+        _team_cache = {"discord_user_ids": dict(_EXTRA_DISCORD_IDS), "email_aliases": extra_aliases}
         return _team_cache
     try:
         import base64
@@ -48,10 +57,15 @@ def _get_team():
         for cname, emails in raw.get("emails", {}).items():
             for email in emails:
                 aliases[email.split("@")[0]] = cname
-        _team_cache = {"discord_user_ids": raw["discord_user_ids"], "email_aliases": aliases}
+        ids = {**raw["discord_user_ids"], **_EXTRA_DISCORD_IDS}
+        for cname, emails in _EXTRA_EMAILS.items():
+            for email in emails:
+                aliases[email.split("@")[0]] = cname
+        _team_cache = {"discord_user_ids": ids, "email_aliases": aliases}
     except Exception as e:
         print(f"Warning: failed to fetch team.json: {e}", file=sys.stderr)
-        _team_cache = {"discord_user_ids": {}, "email_aliases": {}}
+        extra_aliases = {e.split("@")[0]: n for n, emails in _EXTRA_EMAILS.items() for e in emails}
+        _team_cache = {"discord_user_ids": dict(_EXTRA_DISCORD_IDS), "email_aliases": extra_aliases}
     return _team_cache
 
 
