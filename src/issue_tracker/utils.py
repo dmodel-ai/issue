@@ -13,12 +13,15 @@ def die(msg):
 
 def edit(initial=""):
     editor = os.environ.get("EDITOR", "vi")
-    with tempfile.NamedTemporaryFile(suffix=".md", mode="w+", delete=True) as f:
+    with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False) as f:
         f.write(initial)
-        f.flush()
-        subprocess.run(f'{editor} "{f.name}"', shell=True)
-        f.seek(0)
-        return f.read()
+        tmp_path = f.name
+    try:
+        subprocess.run(f'{editor} "{tmp_path}"', shell=True)
+        with open(tmp_path, "r") as f:
+            return f.read()
+    finally:
+        os.unlink(tmp_path)
 
 def now():
     return datetime.utcnow().isoformat() + 'Z'
