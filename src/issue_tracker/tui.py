@@ -23,6 +23,7 @@ def cmd_tui(_):
             Binding("q", "quit", "Quit"),
             Binding("r", "refresh", "Refresh"),
             Binding("c", "comment", "Comment"),
+            Binding("n", "note", "Note"),
             Binding("e", "edit", "Edit"),
             Binding("i", "view_inbox", "Inbox"),
             Binding("o", "view_outbox", "Outbox"),
@@ -288,6 +289,11 @@ def cmd_tui(_):
             if n:
                 self.app.exit(result=("comment", n))
 
+        def action_note(self):
+            n = self.get_selected_id()
+            if n:
+                self.app.exit(result=("note", n))
+
         def action_edit(self):
             n = self.get_selected_id()
             if n:
@@ -352,6 +358,8 @@ def cmd_tui(_):
             subprocess.run(["issue", "show", n])
         elif cmd == "comment":
             subprocess.run(["issue", "comment", n])
+        elif cmd == "note":
+            subprocess.run(["issue", "note", n])
         elif cmd == "edit":
             subprocess.run(["issue", "edit", n])
         input("\nPress Enter to return to TUI...")

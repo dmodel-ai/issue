@@ -169,7 +169,7 @@ def cmd_do(action, args):
     print(f"Attention: {', '.join(issue['attention'])}")
 
 
-def cmd_comment(args):
+def cmd_comment(args, note: bool = False):
     if not args.id:
         inbox = inbox_issues()
         if not inbox:
@@ -188,11 +188,11 @@ def cmd_comment(args):
         text = edit(f"{commented}\n\n").strip()
         text = '\n'.join(l for l in text.split('\n') if not l.startswith('#')).strip()
         if not text:
-            die("Aborted: no comment")
+            die("Aborted: no note" if note else "Aborted: no comment")
 
-    transition(issue, "comment", u=user(), text=text)
+    transition(issue, "note" if note else "comment", u=user(), text=text)
     save(issue)
-    print(f"Commented on #{num(id)}")
+    print(f"{"Noted" if note else "Commented"} on #{num(id)}")
     print(f"Attention: {', '.join(issue['attention'])}")
 
 

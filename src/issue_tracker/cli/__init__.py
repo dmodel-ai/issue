@@ -109,8 +109,8 @@ def _main():
     for name, t in workflow.transitions.items():
         frm, to, handler = t[0], t[1], t[2]
 
-        if name == "comment":
-            # comment has special handling (default id, editor fallback)
+        if name == "comment" or name == "note":
+            # comment and note have special handling (default id, editor fallback)
             c = s.add_parser(name, help=make_help(frm, to))
             c.add_argument("id", nargs="?", help="default: first inbox issue")
             c.add_argument("text", nargs="?", help="omit to open $EDITOR")
@@ -150,6 +150,8 @@ def _main():
         static_handlers[cmd](args)
     elif cmd == "comment":
         cmd_comment(args)
+    elif cmd == "note":
+        cmd_comment(args, note=True)
     elif cmd in workflow.transitions:
         cmd_do(cmd, args)
     else:

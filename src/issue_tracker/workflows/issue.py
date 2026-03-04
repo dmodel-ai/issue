@@ -36,6 +36,10 @@ def on_comment(issue, u, text=None, **_):
         issue["attention"] = [issue["owner"]]
 
 
+def on_note(issue, u, text=None, **_):
+    issue["comments"].append({"author": u, "time": now(), "text": text})
+
+
 def on_approve(issue, u, **_):
     if u not in issue.get("reviewers", []):
         die("Not a reviewer")
@@ -79,6 +83,7 @@ def on_unblock(issue, blocker, **_):
 transitions = {
     "review":   ({INITIAL_STATE},   "review",    on_submit),
     "comment":  (active | terminal, None,        on_comment),
+    "note":     (active | terminal, None,        on_note),
     "approve":  ({"review"},        "approved",  on_approve, all_approved),
     "done":     (active,            DONE_STATE,  clear_attention),
     "abandon":  (active,            "abandoned", clear_attention),
