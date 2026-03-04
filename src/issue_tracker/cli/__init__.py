@@ -3,7 +3,7 @@ import argparse
 import inspect
 import sys
 
-from ..utils import die, IssueError
+from ..utils import die, IssueError, user_info
 from ..tui import cmd_tui
 from ..workflows import workflow
 from .views import cmd_show, cmd_list, cmd_inbox, cmd_outbox, cmd_gantt, cmd_default
@@ -27,7 +27,7 @@ def all_states():
 
 
 # Non-transition commands
-STATIC_CMDS = ["new", "show", "list", "edit", "inbox", "outbox", "gantt", "pick", "tui"]
+STATIC_CMDS = ["new", "show", "list", "edit", "inbox", "outbox", "gantt", "pick", "tui", "whoami"]
 
 # Build full command list
 CMDS = STATIC_CMDS + list(workflow.transitions.keys())
@@ -104,6 +104,7 @@ def _main():
     c.add_argument("-o", "--outbox", action="store_true", help="pick from outbox")
 
     s.add_parser("tui", help="interactive terminal UI")
+    s.add_parser("whoami", help="show current user identity")
 
     # Generate transition commands dynamically from handler signatures
     for name, t in workflow.transitions.items():
@@ -133,6 +134,10 @@ def _main():
     args = p.parse_args()
     cmd = args.cmd
 
+    def cmd_whoami(_args):
+        name, source = user_info()
+        print(f"{name}  (from {source})")
+
     # Static command handlers
     static_handlers = {
         "new": cmd_create,
@@ -144,6 +149,7 @@ def _main():
         "gantt": cmd_gantt,
         "pick": cmd_pick,
         "tui": cmd_tui,
+        "whoami": cmd_whoami,
     }
 
     if cmd in static_handlers:

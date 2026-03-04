@@ -23,15 +23,19 @@ def edit(initial=""):
 def now():
     return datetime.utcnow().isoformat() + 'Z'
 
-def user():
+def user_info():
+    """Return (username, source) tuple."""
     if u := os.environ.get("ISSUE_USER"):
-        return u
+        return u, "ISSUE_USER environment variable"
     try:
         email = subprocess.run(["git", "config", "user.email"],
                                capture_output=True, text=True, check=True).stdout.strip()
-        return email.split('@')[0]
+        return email.split('@')[0], f"git config user.email ({email})"
     except subprocess.CalledProcessError:
-        return "unknown"
+        return "unknown", "fallback (git config failed)"
+
+def user():
+    return user_info()[0]
 
 def ago(ts):
     dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
