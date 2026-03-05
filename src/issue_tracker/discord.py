@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 
 
-_TEAM_API_URL = "https://api.github.com/repos/dmodel-ai/discord-logseq-bot/contents/team.json"
+_TEAM_REPO = "git@github.com:dmodel-ai/discord-logseq-bot.git"
 _team_cache = None
 
 # Extra Discord users not in the logseq bot's team.json
@@ -18,54 +18,38 @@ _EXTRA_EMAILS = {
 }
 
 
-def _get_gh_token():
-    """Get GitHub token from environment or gh CLI config."""
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
-        return token
-    try:
-        import subprocess
-        result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except Exception:
-        return None
+_TEAM_LOCAL = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+                           "issue-tracker", "discord-logseq-bot")
 
 
 def _get_team():
-    """Fetch team mapping from GitHub API (cached for process lifetime)."""
+    """Fetch team mapping via a shallow clone (cached for process lifetime)."""
     global _team_cache
     if _team_cache is not None:
         return _team_cache
-    token = _get_gh_token()
-    if not token:
-        print("Warning: no GitHub token available, Discord pings disabled", file=sys.stderr)
-        extra_aliases = {e.split("@")[0]: n for n, emails in _EXTRA_EMAILS.items() for e in emails}
-        _team_cache = {"discord_user_ids": dict(_EXTRA_DISCORD_IDS), "email_aliases": extra_aliases}
-        return _team_cache
+    extra_aliases = {e.split("@")[0]: n for n, emails in _EXTRA_EMAILS.items() for e in emails}
+    fallback = {"discord_user_ids": dict(_EXTRA_DISCORD_IDS), "email_aliases": extra_aliases}
     try:
-        import base64
-        req = urllib.request.Request(_TEAM_API_URL, headers={
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "issue-tracker/1.0",
-        })
-        resp = urllib.request.urlopen(req, timeout=5)
-        data = json.loads(resp.read())
-        raw = json.loads(base64.b64decode(data["content"]))
-        # Derive email-prefix aliases from the emails table
+        import subprocess
+        os.makedirs(os.path.dirname(_TEAM_LOCAL), exist_ok=True)
+        if os.path.isdir(os.path.join(_TEAM_LOCAL, ".git")):
+            subprocess.run(["git", "-C", _TEAM_LOCAL, "pull", "--ff-only"],
+                           capture_output=True, timeout=10)
+        else:
+            subprocess.run(["git", "clone", "--depth=1", _TEAM_REPO, _TEAM_LOCAL],
+                           capture_output=True, check=True, timeout=30)
+        with open(os.path.join(_TEAM_LOCAL, "team.json")) as f:
+            raw = json.load(f)
         aliases = {}
         for cname, emails in raw.get("emails", {}).items():
             for email in emails:
                 aliases[email.split("@")[0]] = cname
         ids = {**raw["discord_user_ids"], **_EXTRA_DISCORD_IDS}
-        for cname, emails in _EXTRA_EMAILS.items():
-            for email in emails:
-                aliases[email.split("@")[0]] = cname
+        aliases.update(extra_aliases)
         _team_cache = {"discord_user_ids": ids, "email_aliases": aliases}
     except Exception as e:
         print(f"Warning: failed to fetch team.json: {e}", file=sys.stderr)
-        extra_aliases = {e.split("@")[0]: n for n, emails in _EXTRA_EMAILS.items() for e in emails}
-        _team_cache = {"discord_user_ids": dict(_EXTRA_DISCORD_IDS), "email_aliases": extra_aliases}
+        _team_cache = fallback
     return _team_cache
 
 
