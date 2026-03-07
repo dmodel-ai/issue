@@ -1,5 +1,7 @@
 # issue - CLI Issue Tracker
 
+> **Note:** This is a public, open-source version of the issue tracker.
+
 Lightweight issue tracking with pluggable review workflows.
 States: `draft` → `review` → `approved` → `done` (issue workflow)
 
